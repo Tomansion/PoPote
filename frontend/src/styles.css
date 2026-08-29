@@ -1,0 +1,79 @@
+:root {
+  --em-outline: #e2e0da;
+  --em-muted: #8a8a8a;
+}
+
+/* Respect the notch / gesture bar inside the APK. */
+.v-application {
+  padding-top: env(safe-area-inset-top);
+}
+
+.em-outline {
+  border: 1px solid var(--em-outline) !important;
+}
+
+.em-muted {
+  color: var(--em-muted);
+}
+
+.em-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dotted leader between an ingredient name and its quantity, as in the mockup. */
+.em-leader {
+  flex: 1 1 auto;
+  border-bottom: 1px dotted var(--em-outline);
+  margin: 0 0.5rem 0.3rem 0.5rem;
+}
+
+/* App-shell layout: the page itself never scrolls, individual regions do.
+   This is what the mockups show — a fixed bottom navigation with the recipe
+   list scrolling behind it — and it is what the APK needs to feel native.
+
+   It also gives v-main a definite height. Left to itself v-main grows to fit
+   its content, so `fill-height` (height: 100%) resolves against an unbounded
+   parent, .em-scroll never scrolls internally, and anything pinned below it
+   (the detail view's action buttons) is pushed under the bottom navigation. */
+/* #app must be in the chain: a percentage height resolves against the parent's
+   height, and one `height: auto` ancestor breaks the whole chain. */
+html,
+body,
+#app {
+  height: 100%;
+  overflow: hidden;
+}
+
+.v-application,
+.v-application__wrap {
+  height: 100%;
+  min-height: 0;
+}
+
+.v-main {
+  display: flex;
+  flex-direction: column;
+  /* Vuetify ships `flex: 1 0 auto`; flex-shrink 0 makes v-main refuse to go
+     below its content height, so it overflows the viewport no matter what its
+     ancestors do. Shrinking is exactly what an app shell needs. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.v-main > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.em-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Selected card. Vuetify's bg-surface-variant would also recolour the text to
+   on-surface-variant, which washes the title out, so tint the background only. */
+.em-selected {
+  background-color: #ececec !important;
+  border-color: #c9c7c1 !important;
+}

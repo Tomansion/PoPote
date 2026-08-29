@@ -1,0 +1,11 @@
+{
+  "appId": "fr.tomansion.everymeal",
+  "appName": "EveryMeal",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

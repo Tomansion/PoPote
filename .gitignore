@@ -1,0 +1,34 @@
+.env
+.env.local
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# Capacitor / Android
+frontend/android/
+*.apk
+*.aab
+# ...but .env.apk is the APK's build config, not a build artifact. Without this
+# it is swallowed by *.apk and CI builds an APK with no backend URL.
+!frontend/.env.apk
+.gradle/
+local.properties
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
