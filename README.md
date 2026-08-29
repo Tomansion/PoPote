@@ -17,7 +17,7 @@ and edited recipes appear live over a WebSocket, with no account to create.
     ┌───────────┴───────────┐
     │                       │
   web build              APK build
-  VITE_API_URL unset     VITE_API_URL=https://everymeal.tomansion.fr/api
+  VITE_API_URL unset     VITE_API_URL=https://everymeal-back.tomansion.fr/api
   → calls /api           → calls that absolute URL
     │                       │
     └───────────┬───────────┘
@@ -115,6 +115,20 @@ Frontend, at **build** time:
 |---|---|---|
 | Web | `npm run build` | unset → same-origin `/api` |
 | APK | `npm run build:apk` | from `.env.apk` |
+| Web image | `docker build ./frontend` | `--build-arg VITE_API_URL=…`, unset → same-origin `/api` |
+
+Deploying the frontend image on its own — without a `backend` container next to
+it — means there is no same-origin API to proxy to, so the absolute URL has to
+be passed as a **build arg**; a runtime env var on the container arrives after
+Vite has already inlined the value and does nothing:
+
+```sh
+docker build --build-arg VITE_API_URL=https://everymeal-back.tomansion.fr/api ./frontend
+```
+
+That backend is then a different origin, so its `CORS_ORIGINS` must list the
+frontend's origin (and the live feed goes to `wss://…/api/ws`, which the reverse
+proxy in front of the backend has to allow to upgrade).
 
 ---
 

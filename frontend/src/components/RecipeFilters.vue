@@ -28,8 +28,11 @@ function toggleTimeLimit() {
 </script>
 
 <template>
-  <!-- Mobile: one scrollable row of chips under the search field -->
-  <div v-if="layout === 'bar'" class="d-flex align-center ga-2 overflow-x-auto pb-1">
+  <!-- Mobile: chips under the search field. They wrap onto a second line rather
+       than scrolling sideways — a horizontal scroll row silently clipped
+       "Favoris" off the edge, and adding "Effacer" pushed two chips out of
+       sight with nothing to indicate they were there. -->
+  <div v-if="layout === 'bar'" class="d-flex align-center ga-2 flex-wrap">
     <span class="text-caption em-muted flex-shrink-0">Filtres</span>
 
     <v-chip

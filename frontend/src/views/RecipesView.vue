@@ -138,7 +138,7 @@ function notImplemented(message) {
   </div>
 
   <!-- ---------------- Mobile: list ---------------- -->
-  <div v-else class="d-flex flex-column fill-height pa-4">
+  <div v-else class="em-page d-flex flex-column fill-height pa-4">
     <v-text-field
       v-model="search"
       placeholder="Rechercher une recette"

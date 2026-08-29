@@ -1,11 +1,48 @@
 :root {
   --em-outline: #e2e0da;
   --em-muted: #8a8a8a;
+
+  /* Named so the insets can be overridden in tests — env() is always 0 in a
+     desktop browser, so the safe-area handling below is otherwise unverifiable
+     outside a real device. */
+  --em-safe-top: env(safe-area-inset-top, 0px);
+  --em-safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* Respect the notch / gesture bar inside the APK. */
-.v-application {
-  padding-top: env(safe-area-inset-top);
+/* Safe areas inside the APK. Android 15 forces apps edge-to-edge, so without
+   this the phone's back/home/recents bar is drawn straight over our bottom
+   navigation.
+
+   The bars are `position: fixed`, so they resolve against the viewport and
+   ignore padding on any ancestor — the inset has to move the bars themselves.
+   v-main then needs the same amount added to its own padding, or its content
+   slides underneath them. */
+.v-app-bar {
+  top: var(--em-safe-top) !important;
+}
+
+.v-bottom-navigation {
+  bottom: var(--em-safe-bottom) !important;
+}
+
+.v-main {
+  padding-top: calc(var(--v-layout-top, 0px) + var(--em-safe-top));
+  padding-bottom: calc(var(--v-layout-bottom, 0px) + var(--em-safe-bottom));
+}
+
+/* Column page shell: only the scrolling region may absorb leftover space.
+   Vuetify gives .v-input `flex: 1 1 auto`, which is what you want in a row but
+   makes a text field grow *vertically* in a column — the mobile search bar
+   ballooned from 48px to 130px whenever the list below it was short, and shrank
+   back to normal when the keyboard reclaimed the space. */
+.em-page > * {
+  flex: 0 0 auto;
+}
+
+.em-page > .em-scroll,
+.em-page > .flex-grow-1 {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .em-outline {

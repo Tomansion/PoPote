@@ -8,8 +8,14 @@ RUN npm ci
 
 COPY . .
 
-# Web build: no VITE_API_URL, so the app calls the same-origin "/api" path that
-# nginx proxies below. Only the APK build needs an absolute URL.
+# Vite bakes the API base in at build time, so an absolute backend URL has to be
+# passed as a build arg — a runtime env var on the container comes too late and
+# does nothing. Left empty (the compose case) the app calls the same-origin
+# "/api" path that nginx proxies below.
+#   docker build --build-arg VITE_API_URL=https://everymeal-back.tomansion.fr/api
+ARG VITE_API_URL=""
+ENV VITE_API_URL=$VITE_API_URL
+
 RUN npm run build
 
 # ---------- serve ----------

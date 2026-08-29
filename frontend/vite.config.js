@@ -7,7 +7,7 @@ import vuetify from 'vite-plugin-vuetify'
 // The API base URL is injected at build time via VITE_API_URL:
 //   web (dev)  -> unset, falls back to "/api" and the dev proxy below
 //   web (prod) -> unset, falls back to "/api" served by nginx on the same host
-//   APK        -> https://everymeal.tomansion.fr/api (no same-origin to rely on)
+//   APK        -> https://everymeal-back.tomansion.fr/api (no same-origin to rely on)
 export default defineConfig({
   plugins: [vue(), vuetify({ autoImport: true })],
   resolve: {

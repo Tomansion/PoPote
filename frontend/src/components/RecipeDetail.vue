@@ -41,7 +41,7 @@ const chips = computed(() => {
 </script>
 
 <template>
-  <div class="d-flex flex-column fill-height">
+  <div class="em-page d-flex flex-column fill-height">
     <!-- Header row: "← retour ... ♡ favori · ⋯" -->
     <div class="d-flex align-center ga-2 mb-3">
       <v-btn
