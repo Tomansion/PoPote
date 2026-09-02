@@ -5,7 +5,7 @@ import { createVuetify } from 'vuetify'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
 
 // Muted, paper-like palette with thin outlines, matching the mockups.
-const everymealLight = {
+const PoPoteLight = {
   dark: false,
   colors: {
     background: '#f4f3ee',
@@ -26,8 +26,8 @@ const everymealLight = {
 
 export default createVuetify({
   theme: {
-    defaultTheme: 'everymealLight',
-    themes: { everymealLight },
+    defaultTheme: 'PoPoteLight',
+    themes: { PoPoteLight },
   },
   icons: {
     defaultSet: 'mdi',
