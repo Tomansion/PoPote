@@ -83,7 +83,7 @@ cp .env.example .env         # then edit: point ARANGO_* at your database
 ```bash
 cd frontend
 npm install
-npm run dev                  # http://localhost:5173
+npm run serve                  # http://localhost:5173
 ```
 
 The dev server proxies `/api` (including the WebSocket upgrade) to
@@ -194,6 +194,7 @@ derived from it and committed, so no build step needs an image toolchain:
 | `assets/splash.png`, `assets/splash-dark.png` | 2732x2732 launch screen |
 | `public/favicon.ico` | browser tab (16/32/48) |
 | `public/apple-touch-icon.png` | iOS home-screen bookmark (180x180) |
+| `public/intro.mp4` | the launch animation (see Intro animation) |
 
 `@capacitor/assets` turns the `assets/` sources into every Android density
 (`npm run apk:assets`, run automatically by `npm run apk:build` and by CI). It
@@ -257,11 +258,38 @@ frontend/
     components/      Card, detail, form dialog, filters, sync indicator
     views/           RecipesView (list + detail), PlaceholderView
   assets/          icon/splash sources for the launcher icon (see Branding)
-  public/          favicon.ico, apple-touch-icon.png — copied to dist/ as-is
+  public/          favicon.ico, apple-touch-icon.png, intro.mp4 — copied to dist/ as-is
   capacitor.config.json
 .github/workflows/apk.yml
 docker-compose.yml
 ```
+
+---
+
+## Intro animation
+
+`IntroSplash.vue` covers the app with `public/intro.mp4` (5s, 720p, 887 KB) on
+every start, then fades out over 320ms. It is the same component on the web and
+in the APK — the APK is this bundle in a WebView, so nothing about it is
+Android-specific.
+
+Three things it has to get right:
+
+- **Muted.** The clip has an audio track, and both Chrome and the Android
+  WebView refuse to autoplay one unless the element is muted at `play()` time.
+  It is set as a property, since Vue does not reflect the `muted` attribute.
+- **Never traps the app.** A tap anywhere, the *Passer* button, any key, a
+  decode error, a rejected `play()` and an 8s failsafe all land on the same
+  fade-out. The store loads behind the overlay, so the list is ready underneath.
+- **Skipped entirely under `prefers-reduced-motion`.**
+
+The letterbox bars are invisible because the overlay's background is sampled
+from the clip (`#0A3341`).
+
+The one real difference between the platforms is cost: in the APK the video is
+bundled, while on the web it is 887 KB fetched on each visit (cached for 30 days
+by `nginx.conf`). To show it only once per browser session instead, guard
+`showIntro` in `App.vue` with a `sessionStorage` flag.
 
 ---
 

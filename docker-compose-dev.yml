@@ -1,0 +1,27 @@
+services:
+  arangodb:
+    image: arangodb:3.12
+    environment:
+      ARANGO_ROOT_PASSWORD: ${ARANGO_ROOT_PASSWORD:-popote}
+    ports:
+      # Web UI at http://localhost:8529 (user root).
+      - "8529:8529"
+    volumes:
+      - arango_data:/var/lib/arangodb3
+      - arango_apps:/var/lib/arangodb3-apps
+    healthcheck:
+      # arangosh always authenticates, so the endpoint and credentials have to
+      # be passed explicitly or every probe fails with "not connected".
+      test: ["CMD", "arangosh",
+             "--server.endpoint", "tcp://127.0.0.1:8529",
+             "--server.username", "root",
+             "--server.password", "${ARANGO_ROOT_PASSWORD:-popote}",
+             "--javascript.execute-string", "db._version()"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  arango_data:
+  arango_apps:

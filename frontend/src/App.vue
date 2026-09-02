@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useDisplay } from 'vuetify'
 
+import IntroSplash from '@/components/IntroSplash.vue'
 import RecipeFilters from '@/components/RecipeFilters.vue'
 import SyncStatus from '@/components/SyncStatus.vue'
 import { useRecipesStore } from '@/stores/recipes'
@@ -35,11 +36,19 @@ const showMobileAppBar = computed(() => !mdAndUp.value && !route.meta.detail)
 
 const isRecipesSection = computed(() => activeNav.value === 'recipes')
 
+// Plays once per app start, on the web and in the APK alike. Skipped outright
+// for anyone who asked the system for less motion.
+const showIntro = ref(!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+
+// The store loads behind the intro, so the recipes are already there when it
+// fades out.
 onMounted(() => store.init())
 onBeforeUnmount(() => store.stop())
 </script>
 
 <template>
+  <IntroSplash v-if="showIntro" @done="showIntro = false" />
+
   <v-app>
     <!-- ============ Desktop: permanent drawer with nav + filters ============ -->
     <v-navigation-drawer
