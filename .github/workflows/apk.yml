@@ -11,7 +11,7 @@ on:
       api_url:
         description: 'Backend URL to bake into the APK'
         required: false
-        default: 'https://popote-back.tomansion.fr/api'
+        default: 'https://popote.back.tomansion.fr/api'
 
 # The APK is a plain build artifact; only the release step writes anything.
 permissions:
