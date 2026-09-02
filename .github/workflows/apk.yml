@@ -44,6 +44,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # package.json is the single source of truth for the version; it names the
+      # APK, the release, and the versionName Android shows in the app info.
+      - name: Read the app version
+        run: |
+          echo "APP_VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+
       - name: Build web assets
         env:
           # Passed via the environment rather than interpolated into the script,
@@ -75,8 +81,23 @@ jobs:
       - name: Generate the Android project
         run: npx cap add android
 
+      # `cap add android` unpacks Capacitor's template, which hardcodes
+      # versionCode 1 / versionName "1.0". Without this the app info screen
+      # would report 1.0 for every build ever shipped.
+      - name: Stamp the version into the Android project
+        run: |
+          sed -i "s/^\( *versionCode \)1$/\1${GITHUB_RUN_NUMBER}/" android/app/build.gradle
+          sed -i "s/^\( *versionName \)\"1.0\"$/\1\"${APP_VERSION}\"/" android/app/build.gradle
+          grep -E 'version(Code|Name)' android/app/build.gradle
+          grep -q "versionName \"${APP_VERSION}\"" android/app/build.gradle
+
       - name: Sync web assets into the Android project
         run: npx cap sync android
+
+      # Replaces Capacitor's default Android robot icon and splash with the
+      # generated launcher icons in frontend/assets/.
+      - name: Generate the launcher icon and splash screen
+        run: npm run apk:assets
 
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --no-daemon
@@ -86,7 +107,7 @@ jobs:
         run: |
           mkdir -p out
           cp android/app/build/outputs/apk/debug/app-debug.apk \
-             "out/popote-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}.apk"
+             "out/popote-${APP_VERSION}-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}.apk"
           ls -lh out/
 
       # Downloadable from the workflow run's "Artifacts" section for 90 days.
@@ -96,6 +117,38 @@ jobs:
           path: frontend/out/*.apk
           retention-days: 90
           if-no-files-found: error
+
+      # GitHub zips every workflow artifact, so the download above is a .zip.
+      # A release asset is served as-is, so each push to main also refreshes a
+      # rolling `latest` prerelease under a stable file name — that gives one
+      # permanent link a phone browser can install from directly:
+      # https://github.com/Tomansion/EveryMeal/releases/download/latest/popote-latest.apk
+      - name: Stage the APK under a stable name
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p rolling
+          cp out/*.apk rolling/popote-latest.apk
+
+      - name: Refresh the rolling `latest` release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: PoPote ${{ env.APP_VERSION }} (latest from main)
+          body: |
+            Debug-signed APK built automatically from `main`.
+
+            | | |
+            |---|---|
+            | Version | `${{ env.APP_VERSION }}` (build ${{ github.run_number }}) |
+            | Commit | ${{ github.sha }} |
+
+            This release is overwritten by every push, so the download link
+            stays the same.
+          # Kept out of the "Latest release" slot so version tags keep it.
+          prerelease: true
+          make_latest: false
+          files: frontend/rolling/popote-latest.apk
 
       # Tagging (e.g. `git tag v0.1.0 && git push --tags`) publishes a release
       # with a stable download link, which is easier to share than an artifact.

@@ -136,9 +136,15 @@ proxy in front of the backend has to allow to upgrade).
 
 ### Download one
 
-Every push to `main` builds an APK in CI
-(`.github/workflows/apk.yml`). Grab it from the **Artifacts** section of the
-workflow run, or publish a permanent one by tagging a release:
+Every push to `main` builds an APK in CI (`.github/workflows/apk.yml`) and
+publishes it to the rolling `latest` prerelease, so this link always serves the
+newest build as a plain `.apk` — installable straight from a phone browser:
+
+<https://github.com/Tomansion/EveryMeal/releases/download/latest/popote-latest.apk>
+
+The same APK is also attached to the workflow run's **Artifacts** section, but
+GitHub zips artifacts, so that copy has to be unzipped first. For a version you
+can pin to, tag a release:
 
 ```bash
 git tag v0.1.0 && git push --tags     # attaches the APK to a GitHub Release
@@ -165,6 +171,36 @@ npm run apk:build     # builds the web assets and assembles the APK
 
 `android/` is generated rather than committed, so it is regenerated from
 whatever Capacitor version `package.json` pins.
+
+### Versioning
+
+`version` in `frontend/package.json` is the source of truth. CI stamps it into
+the generated Gradle project as the Android `versionName` (the number the app
+info screen shows) and names the artifact after it; `versionCode`, which only
+has to increase, is the CI run number. A local `npm run apk:build` skips that
+stamping and keeps Capacitor's template default of `1.0`, so bump the version in
+`package.json` and let CI build the APK you actually hand out.
+
+### Branding
+
+`frontend/assets/logo.png` (1354x1423) is the master artwork; everything else is
+derived from it and committed, so no build step needs an image toolchain:
+
+| File | What it feeds |
+|---|---|
+| `assets/icon.png` | 1024x1024 square icon (the master stretched to square) |
+| `assets/icon-foreground.png` | adaptive-icon foreground: the artwork alone, scaled into Android's safe zone so no mask shape clips it |
+| `assets/icon-background.png` | adaptive-icon background: flat `#0D3744` |
+| `assets/splash.png`, `assets/splash-dark.png` | 2732x2732 launch screen |
+| `public/favicon.ico` | browser tab (16/32/48) |
+| `public/apple-touch-icon.png` | iOS home-screen bookmark (180x180) |
+
+`@capacitor/assets` turns the `assets/` sources into every Android density
+(`npm run apk:assets`, run automatically by `npm run apk:build` and by CI). It
+has to run after `cap add android`, since it writes into the generated project.
+
+`assets/logo.svg` is kept as the vector master but is not used by any build —
+its outlines do not survive rasterisation, so the PNG is the reference.
 
 ### Why the APK needs an absolute URL
 
@@ -220,6 +256,8 @@ frontend/
     stores/recipes.js    Pinia store: cache → live feed → UI
     components/      Card, detail, form dialog, filters, sync indicator
     views/           RecipesView (list + detail), PlaceholderView
+  assets/          icon/splash sources for the launcher icon (see Branding)
+  public/          favicon.ico, apple-touch-icon.png — copied to dist/ as-is
   capacitor.config.json
 .github/workflows/apk.yml
 docker-compose.yml
