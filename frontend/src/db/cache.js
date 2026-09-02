@@ -11,7 +11,7 @@ import Dexie from 'dexie'
  * IndexedDB is used identically by the web build and by the Android WebView,
  * so this file is shared verbatim between both targets.
  */
-const db = new Dexie('everymeal')
+const db = new Dexie('popote')
 
 db.version(1).stores({
   recipes: 'id, name, type, updated_at',

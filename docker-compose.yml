@@ -2,7 +2,7 @@ services:
   arangodb:
     image: arangodb:3.12
     environment:
-      ARANGO_ROOT_PASSWORD: ${ARANGO_ROOT_PASSWORD:-everymeal}
+      ARANGO_ROOT_PASSWORD: ${ARANGO_ROOT_PASSWORD:-popote}
     ports:
       # Web UI at http://localhost:8529 (user root).
       - "8529:8529"
@@ -15,7 +15,7 @@ services:
       test: ["CMD", "arangosh",
              "--server.endpoint", "tcp://127.0.0.1:8529",
              "--server.username", "root",
-             "--server.password", "${ARANGO_ROOT_PASSWORD:-everymeal}",
+             "--server.password", "${ARANGO_ROOT_PASSWORD:-popote}",
              "--javascript.execute-string", "db._version()"]
       interval: 5s
       timeout: 10s
@@ -28,9 +28,9 @@ services:
       # Defaults target the local Arango container. To point the stack at the
       # shared instance instead, set these in a .env next to this file.
       ARANGO_URL: ${ARANGO_URL:-http://arangodb:8529}
-      ARANGO_DB: ${ARANGO_DB:-everymeal}
+      ARANGO_DB: ${ARANGO_DB:-popote}
       ARANGO_USER: ${ARANGO_USER:-root}
-      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-everymeal}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-popote}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
     depends_on:

@@ -12,7 +12,7 @@ COPY . .
 # passed as a build arg — a runtime env var on the container comes too late and
 # does nothing. Left empty (the compose case) the app calls the same-origin
 # "/api" path that nginx proxies below.
-#   docker build --build-arg VITE_API_URL=https://everymeal-back.tomansion.fr/api
+#   docker build --build-arg VITE_API_URL=https://popote-back.tomansion.fr/api
 ARG VITE_API_URL=""
 ENV VITE_API_URL=$VITE_API_URL
 

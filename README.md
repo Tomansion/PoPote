@@ -1,4 +1,4 @@
-# EveryMeal
+# Po'Pote
 
 Shared recipe book — a responsive web app and an Android APK built from the same
 Vue codebase, backed by a FastAPI + ArangoDB server. Everyone connected sees new
@@ -17,7 +17,7 @@ and edited recipes appear live over a WebSocket, with no account to create.
     ┌───────────┴───────────┐
     │                       │
   web build              APK build
-  VITE_API_URL unset     VITE_API_URL=https://everymeal-back.tomansion.fr/api
+  VITE_API_URL unset     VITE_API_URL=https://popote-back.tomansion.fr/api
   → calls /api           → calls that absolute URL
     │                       │
     └───────────┬───────────┘
@@ -58,7 +58,7 @@ docker compose up --build
 |---|---|
 | Web app | <http://localhost:8080> |
 | API docs | <http://localhost:8100/docs> |
-| ArangoDB UI | <http://localhost:8529> (user `root`, password `everymeal`) |
+| ArangoDB UI | <http://localhost:8529> (user `root`, password `popote`) |
 
 Six demo recipes are inserted on first start, when the collection is empty.
 
@@ -101,8 +101,8 @@ Backend, via `backend/.env` (see `backend/.env.example`):
 | Variable | Default | Notes |
 |---|---|---|
 | `ARANGO_URL` | `http://localhost:8529` | |
-| `ARANGO_DB` | `everymeal` | |
-| `ARANGO_USER` / `ARANGO_PASSWORD` | `root` / `everymeal` | |
+| `ARANGO_DB` | `popote` | |
+| `ARANGO_USER` / `ARANGO_PASSWORD` | `root` / `popote` | |
 | `CORS_ORIGINS` | `*` | Comma-separated. Must include `https://localhost` — the APK's origin — if you narrow it. |
 | `SEED_DEMO_DATA` | `true` | Only seeds when the collection is empty. |
 
@@ -123,7 +123,7 @@ be passed as a **build arg**; a runtime env var on the container arrives after
 Vite has already inlined the value and does nothing:
 
 ```sh
-docker build --build-arg VITE_API_URL=https://everymeal-back.tomansion.fr/api ./frontend
+docker build --build-arg VITE_API_URL=https://popote-back.tomansion.fr/api ./frontend
 ```
 
 That backend is then a different origin, so its `CORS_ORIGINS` must list the
@@ -236,7 +236,7 @@ docker-compose.yml
   That is the intended POC behaviour ("no account creation"), but it means the
   deployment should not be publicly writable long-term.
 - **Web offline is data-only.** Recipes are cached, but the app *shell* is not:
-  loading `everymeal.tomansion.fr` with no connection still fails. Adding
+  loading `popote.tomansion.fr` with no connection still fails. Adding
   `vite-plugin-pwa` would fix that for the web. The APK is unaffected, since it
   ships its assets on the device.
 - **Last write wins.** Two people editing the same recipe at once — the second

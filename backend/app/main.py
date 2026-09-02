@@ -15,7 +15,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
 )
-logger = logging.getLogger("everymeal")
+logger = logging.getLogger("popote")
 
 
 @asynccontextmanager
@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="EveryMeal API",
+    title="PoPote API",
     version="0.1.0",
     lifespan=lifespan,
     # Served behind nginx under /api in docker-compose and in production.

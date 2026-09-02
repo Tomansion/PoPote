@@ -1,6 +1,6 @@
 {
-  "appId": "fr.tomansion.everymeal",
-  "appName": "EveryMeal",
+  "appId": "fr.tomansion.popote",
+  "appName": "PoPote",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"

@@ -31,7 +31,7 @@ _db: Optional[StandardDatabase] = None
 def _ensure_database(client: ArangoClient) -> StandardDatabase:
     """Open the target database, creating it only if we are allowed to.
 
-    A scoped user (one granted rights on `everymeal` alone) cannot read
+    A scoped user (one granted rights on `popote` alone) cannot read
     `_system`, so the happy path is to open the database directly. Creating it
     is only attempted as a fallback, for a local/dev root user pointed at an
     empty server.

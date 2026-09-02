@@ -11,7 +11,7 @@ on:
       api_url:
         description: 'Backend URL to bake into the APK'
         required: false
-        default: 'https://everymeal-back.tomansion.fr/api'
+        default: 'https://popote-back.tomansion.fr/api'
 
 # The APK is a plain build artifact; only the release step writes anything.
 permissions:
@@ -86,13 +86,13 @@ jobs:
         run: |
           mkdir -p out
           cp android/app/build/outputs/apk/debug/app-debug.apk \
-             "out/everymeal-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}.apk"
+             "out/popote-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}.apk"
           ls -lh out/
 
       # Downloadable from the workflow run's "Artifacts" section for 90 days.
       - uses: actions/upload-artifact@v4
         with:
-          name: everymeal-apk
+          name: popote-apk
           path: frontend/out/*.apk
           retention-days: 90
           if-no-files-found: error

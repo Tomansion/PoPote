@@ -51,7 +51,7 @@ onBeforeUnmount(() => store.stop())
       class="em-outline"
     >
       <div class="pa-4">
-        <div class="text-subtitle-1 font-weight-medium mb-6">EveryMeal</div>
+        <div class="text-subtitle-1 font-weight-medium mb-6">Po'Pote</div>
 
         <v-list density="compact" nav class="pa-0">
           <v-list-item

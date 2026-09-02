@@ -5,9 +5,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     arango_url: str = "http://localhost:8529"
-    arango_db: str = "everymeal"
+    arango_db: str = "popote"
     arango_user: str = "root"
-    arango_password: str = "everymeal"
+    arango_password: str = "popote"
 
     # Comma-separated list, or "*" to allow any origin.
     # The APK runs from https://localhost (Capacitor's own origin), so that one
