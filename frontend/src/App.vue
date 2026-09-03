@@ -5,8 +5,11 @@ import { storeToRefs } from 'pinia'
 import { useDisplay } from 'vuetify'
 
 import IntroSplash from '@/components/IntroSplash.vue'
+import ProfileMenu from '@/components/ProfileMenu.vue'
 import RecipeFilters from '@/components/RecipeFilters.vue'
 import SyncStatus from '@/components/SyncStatus.vue'
+import { useAuthStore } from '@/stores/auth'
+import { useEventsStore } from '@/stores/events'
 import { useRecipesStore } from '@/stores/recipes'
 
 const route = useRoute()
@@ -14,13 +17,27 @@ const router = useRouter()
 const { mdAndUp } = useDisplay()
 
 const store = useRecipesStore()
+const auth = useAuthStore()
+const events = useEventsStore()
 const { search, toast } = storeToRefs(store)
+const { toast: eventToast } = storeToRefs(events)
 
 const snackbar = ref(false)
+const activeToast = ref(null)
 
-watch(toast, (value) => {
-  if (value) snackbar.value = true
+// Both stores raise toasts; whichever fires last wins the one snackbar.
+watch([toast, eventToast], () => {
+  const latest = [toast.value, eventToast.value]
+    .filter(Boolean)
+    .sort((a, b) => b.at - a.at)[0]
+  if (latest && latest !== activeToast.value) {
+    activeToast.value = latest
+    snackbar.value = true
+  }
 })
+
+/** The login screen renders on its own, with no nav, bars or drawer. */
+const isBare = computed(() => Boolean(route.meta.bare))
 
 const NAV_ITEMS = [
   { key: 'recipes', title: 'Recettes', to: '/', icon: 'mdi-notebook-outline' },
@@ -41,8 +58,23 @@ const isRecipesSection = computed(() => activeNav.value === 'recipes')
 const showIntro = ref(!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
 
 // The store loads behind the intro, so the recipes are already there when it
-// fades out.
-onMounted(() => store.init())
+// fades out. Nothing is loaded until there is a session to load it for: the
+// feed needs a token, and the recipes it returns are this user's.
+onMounted(async () => {
+  await auth.restore()
+  if (auth.isAuthenticated) store.init()
+})
+
+// Signing in starts the feed; signing out tears it down and empties the stores,
+// so no trace of the previous account is left on screen.
+watch(
+  () => auth.isAuthenticated,
+  (signedIn, wasSignedIn) => {
+    if (signedIn && !wasSignedIn) store.init()
+    else if (!signedIn && wasSignedIn) store.reset()
+  },
+)
+
 onBeforeUnmount(() => store.stop())
 </script>
 
@@ -50,6 +82,12 @@ onBeforeUnmount(() => store.stop())
   <IntroSplash v-if="showIntro" @done="showIntro = false" />
 
   <v-app>
+    <!-- The login screen gets the bare app shell: no nav, no bars. -->
+    <v-main v-if="isBare">
+      <router-view />
+    </v-main>
+
+    <template v-else>
     <!-- ============ Desktop: permanent drawer with nav + filters ============ -->
     <v-navigation-drawer
       v-if="mdAndUp"
@@ -81,9 +119,20 @@ onBeforeUnmount(() => store.stop())
 
       <template #append>
         <div class="pa-4">
-          <v-btn block size="large" @click="store.openCreateForm()">
+          <v-btn
+            v-if="isRecipesSection"
+            block
+            size="large"
+            class="mb-3"
+            @click="store.openCreateForm()"
+          >
             + Nouvelle recette
           </v-btn>
+
+          <div class="d-flex align-center ga-3">
+            <ProfileMenu :size="36" />
+            <div class="text-body-2 text-truncate">{{ auth.user?.display_name }}</div>
+          </div>
         </div>
       </template>
     </v-navigation-drawer>
@@ -108,13 +157,17 @@ onBeforeUnmount(() => store.stop())
     <!-- ============ Mobile top bar: centred title ============ -->
     <v-app-bar v-else-if="showMobileAppBar" flat color="background">
       <template #prepend>
-        <v-avatar size="32" class="em-outline" />
+        <div class="ps-2">
+          <SyncStatus compact />
+        </div>
       </template>
       <v-app-bar-title class="text-center text-subtitle-1">
         {{ route.meta.title }}
       </v-app-bar-title>
       <template #append>
-        <v-avatar size="32" class="em-outline" />
+        <div class="pe-2">
+          <ProfileMenu :size="32" />
+        </div>
       </template>
     </v-app-bar>
 
@@ -145,11 +198,12 @@ onBeforeUnmount(() => store.stop())
 
     <v-snackbar
       v-model="snackbar"
-      :color="toast?.color ?? 'error'"
+      :color="activeToast?.color ?? 'error'"
       timeout="3500"
       location="bottom"
     >
-      {{ toast?.message }}
+      {{ activeToast?.message }}
     </v-snackbar>
+    </template>
   </v-app>
 </template>

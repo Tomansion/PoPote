@@ -3,6 +3,7 @@ import '@mdi/font/css/materialdesignicons.css'
 
 import { createVuetify } from 'vuetify'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
+import { fr } from 'vuetify/locale'
 
 // Muted, paper-like palette with thin outlines, matching the mockups.
 const PoPoteLight = {
@@ -25,6 +26,16 @@ const PoPoteLight = {
 }
 
 export default createVuetify({
+  // The whole UI is in French. Without this, Vuetify's own strings — and the
+  // date picker's weekday and month headers — render in English.
+  locale: {
+    locale: 'fr',
+    fallback: 'en',
+    messages: { fr },
+  },
+  date: {
+    locale: { fr: 'fr-FR' },
+  },
   theme: {
     defaultTheme: 'PoPoteLight',
     themes: { PoPoteLight },

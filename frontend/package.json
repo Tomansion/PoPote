@@ -1,7 +1,7 @@
 {
   "name": "popote-frontend",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "serve": "vite",
@@ -16,6 +16,8 @@
   "dependencies": {
     "@capacitor/android": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "@dicebear/core": "^10.7.0",
+    "@dicebear/styles": "^10.6.0",
     "@mdi/font": "^7.4.47",
     "dexie": "^4.4.5",
     "pinia": "^4.0.3",

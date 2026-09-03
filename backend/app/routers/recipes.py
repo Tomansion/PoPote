@@ -1,10 +1,11 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from .. import db
 from ..aisles import AISLES, detect_aisle
+from ..auth import CurrentUser, user_from_ws_token
 from ..models import Recipe, RecipeCreate, RecipeUpdate, WSEvent
 from ..ws import manager
 
@@ -15,43 +16,52 @@ router = APIRouter()
 
 # python-arango is synchronous, so every database call goes through a worker
 # thread to keep the event loop (and therefore the WebSocket fan-out) free.
+#
+# Every recipe endpoint is scoped to the caller: the user id comes from the
+# token, never from the request, so there is no way to ask for someone else's
+# recipes. A recipe owned by another account reads as 404 rather than 403,
+# which keeps the API from confirming that a guessed id exists.
 
 
 @router.get("/recipes", response_model=list[Recipe])
-async def list_recipes() -> list[Recipe]:
-    return await asyncio.to_thread(db.list_recipes)
+async def list_recipes(user: CurrentUser) -> list[Recipe]:
+    return await asyncio.to_thread(db.list_recipes, user.id)
 
 
 @router.get("/recipes/{recipe_id}", response_model=Recipe)
-async def get_recipe(recipe_id: str) -> Recipe:
-    recipe = await asyncio.to_thread(db.get_recipe, recipe_id)
+async def get_recipe(recipe_id: str, user: CurrentUser) -> Recipe:
+    recipe = await asyncio.to_thread(db.get_recipe, recipe_id, user.id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
     return recipe
 
 
 @router.post("/recipes", response_model=Recipe, status_code=201)
-async def create_recipe(payload: RecipeCreate) -> Recipe:
-    recipe = await asyncio.to_thread(db.create_recipe, payload)
-    await manager.broadcast(WSEvent(type="recipe.created", recipe=recipe))
+async def create_recipe(payload: RecipeCreate, user: CurrentUser) -> Recipe:
+    recipe = await asyncio.to_thread(db.create_recipe, payload, user.id)
+    await manager.send_to_user(user.id, WSEvent(type="recipe.created", recipe=recipe))
     return recipe
 
 
 @router.put("/recipes/{recipe_id}", response_model=Recipe)
-async def update_recipe(recipe_id: str, payload: RecipeUpdate) -> Recipe:
-    recipe = await asyncio.to_thread(db.update_recipe, recipe_id, payload)
+async def update_recipe(
+    recipe_id: str, payload: RecipeUpdate, user: CurrentUser
+) -> Recipe:
+    recipe = await asyncio.to_thread(db.update_recipe, recipe_id, payload, user.id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    await manager.broadcast(WSEvent(type="recipe.updated", recipe=recipe))
+    await manager.send_to_user(user.id, WSEvent(type="recipe.updated", recipe=recipe))
     return recipe
 
 
 @router.delete("/recipes/{recipe_id}", status_code=204)
-async def delete_recipe(recipe_id: str) -> None:
-    deleted = await asyncio.to_thread(db.delete_recipe, recipe_id)
+async def delete_recipe(recipe_id: str, user: CurrentUser) -> None:
+    deleted = await asyncio.to_thread(db.delete_recipe, recipe_id, user.id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    await manager.broadcast(WSEvent(type="recipe.deleted", recipe_id=recipe_id))
+    await manager.send_to_user(
+        user.id, WSEvent(type="recipe.deleted", recipe_id=recipe_id)
+    )
 
 
 @router.get("/aisles")
@@ -67,18 +77,29 @@ async def detect(name: str) -> dict[str, str]:
 
 
 @router.websocket("/ws")
-async def recipes_ws(websocket: WebSocket) -> None:
-    """Live recipe feed.
+async def recipes_ws(websocket: WebSocket, token: str = Query(default="")) -> None:
+    """Live feed for one signed-in user.
 
-    On connect the client receives a `hello` event carrying the full current
-    list, which doubles as the initial load and as a resync after a dropped
-    connection. Afterwards it receives one event per change.
+    The token arrives as a query parameter because browsers cannot set headers
+    on a WebSocket handshake; it is the same token the REST calls carry.
+
+    On connect the client receives a `hello` event with that user's full recipe
+    list and events, which doubles as the initial load and as a resync after a
+    dropped connection. Afterwards it receives one event per change.
     """
-    await manager.connect(websocket)
+    user = await asyncio.to_thread(user_from_ws_token, token)
+    if user is None:
+        # 1008 (policy violation) before accepting: the client reads this as
+        # "log in again" rather than retrying forever behind a backoff.
+        await websocket.close(code=1008, reason="Unauthorized")
+        return
+
+    await manager.connect(websocket, user.id)
     try:
-        recipes = await asyncio.to_thread(db.list_recipes)
+        recipes = await asyncio.to_thread(db.list_recipes, user.id)
+        events = await asyncio.to_thread(db.list_events, user.id)
         await websocket.send_json(
-            WSEvent(type="hello", recipes=recipes).model_dump(
+            WSEvent(type="hello", recipes=recipes, events=events).model_dump(
                 mode="json", exclude_none=True
             )
         )
@@ -93,4 +114,4 @@ async def recipes_ws(websocket: WebSocket) -> None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("WS error: %s", exc)
     finally:
-        await manager.disconnect(websocket)
+        await manager.disconnect(websocket, user.id)

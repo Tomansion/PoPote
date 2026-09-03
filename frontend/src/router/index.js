@@ -2,6 +2,10 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import RecipesView from '@/views/RecipesView.vue'
 import PlaceholderView from '@/views/PlaceholderView.vue'
+import PlannerView from '@/views/PlannerView.vue'
+import LoginView from '@/views/LoginView.vue'
+import JoinView from '@/views/JoinView.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const routes = [
   {
@@ -23,13 +27,22 @@ const routes = [
   {
     path: '/planner',
     name: 'planner',
-    component: PlaceholderView,
-    meta: {
-      title: 'Planificateur',
-      nav: 'planner',
-      icon: 'mdi-calendar-month-outline',
-      blurb: 'Planifier les repas de la semaine à partir de vos recettes.',
-    },
+    component: PlannerView,
+    meta: { title: 'Planificateur', nav: 'planner' },
+  },
+  {
+    // The target of a shared invite link. A real route, so opening the link
+    // cold — from a message, on a phone — lands straight on the invitation.
+    path: '/join/:code',
+    name: 'join',
+    component: JoinView,
+    meta: { title: 'Invitation', nav: 'planner', detail: true },
+  },
+  {
+    path: '/login',
+    name: 'login',
+    component: LoginView,
+    meta: { title: 'Connexion', public: true, bare: true },
   },
   {
     path: '/groceries',
@@ -45,8 +58,29 @@ const routes = [
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
-export default createRouter({
+const router = createRouter({
   // Capacitor serves the app from https://localhost, where history mode works.
   history: createWebHistory(),
   routes,
 })
+
+/**
+ * Gate every route but the login screen.
+ *
+ * `next` carries the route that was asked for, so following an invite link
+ * while signed out sends you to the invitation after logging in, rather than
+ * dumping you on the recipe list with the link lost.
+ */
+router.beforeEach((to) => {
+  const auth = useAuthStore()
+
+  if (!to.meta.public && !auth.isAuthenticated) {
+    return { name: 'login', query: to.fullPath === '/' ? {} : { next: to.fullPath } }
+  }
+  if (to.meta.public && auth.isAuthenticated) {
+    return { path: '/' }
+  }
+  return true
+})
+
+export default router

@@ -6,9 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import db
+from .auth import init_secret
 from .config import settings
-from .routers import recipes
-from .seed import DEMO_RECIPES
+from .routers import auth, events, recipes
 from .ws import manager
 
 logging.basicConfig(
@@ -21,8 +21,9 @@ logger = logging.getLogger("popote")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await asyncio.to_thread(db.connect)
-    if settings.seed_demo_data:
-        await asyncio.to_thread(db.seed_if_empty, DEMO_RECIPES)
+    # Must follow connect(): the signing key is read from (or written to) the
+    # database, so that a restart does not invalidate every issued token.
+    await asyncio.to_thread(init_secret)
     yield
 
 
@@ -42,7 +43,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(recipes.router, prefix="/api", tags=["recipes"])
+app.include_router(events.router, prefix="/api", tags=["events"])
 
 
 @app.get("/api/health")
@@ -60,4 +63,5 @@ async def health() -> dict[str, object]:
         "database": database_ok,
         "recipes": count,
         "ws_clients": manager.count,
+        "ws_users": manager.user_count,
     }

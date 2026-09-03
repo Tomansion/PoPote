@@ -33,6 +33,10 @@ services:
       ARANGO_PASSWORD: ${ARANGO_PASSWORD:-popote}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      # Optional. Left empty, the backend generates a key on first start and
+      # keeps it in ArangoDB, so sessions survive restarts with no config.
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_TTL_DAYS: ${JWT_TTL_DAYS:-3650}
     depends_on:
       arangodb:
         condition: service_healthy

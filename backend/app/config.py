@@ -14,8 +14,19 @@ class Settings(BaseSettings):
     # is always needed on top of whatever the web app is served from.
     cors_origins: str = "*"
 
-    # Insert a handful of demo recipes when the collection is empty.
+    # Give every newly registered account a copy of the demo recipes.
+    # Recipes are per-user now, so there is no ownerless set to seed at boot.
     seed_demo_data: bool = True
+
+    # Signing key for the session tokens. Leave empty and the backend generates
+    # one on first start and stores it in ArangoDB, so tokens keep working
+    # across restarts and redeploys without anything to configure. Set it
+    # explicitly to share one key across several backends.
+    jwt_secret: str = ""
+
+    # Tokens are deliberately long-lived: this is a friends-and-family app and
+    # nobody should be asked to log in again on their phone every few weeks.
+    jwt_ttl_days: int = 3650
 
     @property
     def cors_origin_list(self) -> list[str]:

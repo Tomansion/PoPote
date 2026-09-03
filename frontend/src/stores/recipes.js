@@ -3,6 +3,8 @@ import { defineStore } from 'pinia'
 
 import { api, ApiError } from '@/api/client'
 import { createLiveFeed } from '@/api/ws'
+import { useAuthStore } from '@/stores/auth'
+import { useEventsStore } from '@/stores/events'
 import {
   readCachedRecipes,
   readLastSync,
@@ -114,6 +116,13 @@ export const useRecipesStore = defineStore('recipes', () => {
   }
 
   function handleEvent(event) {
+    // One socket carries both streams. Events are handed to their own store,
+    // so there is a single connection and a single `hello` to resync from.
+    if (event.type === 'hello' || event.type.startsWith('event.')) {
+      useEventsStore().handleEvent(event)
+      if (event.type !== 'hello') return
+    }
+
     switch (event.type) {
       case 'hello':
         // Sent on every (re)connect: a full snapshot, so it is also the resync.
@@ -158,10 +167,13 @@ export const useRecipesStore = defineStore('recipes', () => {
   }
 
   async function init() {
+    const events = useEventsStore()
+
     // 1. Paint from cache first so the list is usable before any network I/O.
     const [cached, cachedSync] = await Promise.all([
       readCachedRecipes(),
       readLastSync(),
+      events.initFromCache(),
     ])
     if (cached.length) {
       recipes.value = cached
@@ -177,6 +189,9 @@ export const useRecipesStore = defineStore('recipes', () => {
         connection.value = status
         if (status === 'offline') loading.value = false
       },
+      // The server refused the token on the handshake. Reconnecting cannot
+      // help, so end the session instead of retrying behind the backoff.
+      onUnauthorized: () => useAuthStore().signOut(),
     })
     feed.start()
 
@@ -184,7 +199,7 @@ export const useRecipesStore = defineStore('recipes', () => {
     //    some proxies allow REST while blocking WebSocket upgrades.
     fallbackTimer = setTimeout(async () => {
       if (!hasServerData.value) {
-        const reached = await refresh()
+        const [reached] = await Promise.all([refresh(), events.refresh()])
         // A failed HTTP call is a much faster offline signal than waiting for
         // the WebSocket to give up, which can take ~10s behind a proxy whose
         // upstream is down. If the socket does come up later it corrects this.
@@ -195,6 +210,21 @@ export const useRecipesStore = defineStore('recipes', () => {
 
     window.addEventListener('online', handleOnline)
     document.addEventListener('visibilitychange', handleVisibility)
+  }
+
+  /** Drop everything held in memory. Called when signing out. */
+  function reset() {
+    stop()
+    recipes.value = []
+    loading.value = true
+    connection.value = 'connecting'
+    lastSync.value = null
+    servedFromCache.value = false
+    hasServerData.value = false
+    formOpen.value = false
+    editingRecipe.value = null
+    resetFilters()
+    useEventsStore().reset()
   }
 
   function stop() {
@@ -299,6 +329,7 @@ export const useRecipesStore = defineStore('recipes', () => {
     totalMinutes,
     init,
     stop,
+    reset,
     refresh,
     createRecipe,
     updateRecipe,

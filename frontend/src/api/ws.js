@@ -1,4 +1,5 @@
 import { websocketUrl } from './config'
+import { readToken } from './session'
 
 const INITIAL_RETRY_MS = 1000
 const MAX_RETRY_MS = 20000
@@ -12,7 +13,7 @@ const PING_INTERVAL_MS = 25000
  * the server replays the full list in a `hello` event, so a reconnect doubles
  * as a resync — the client never has to reason about what it missed.
  */
-export function createLiveFeed({ onEvent, onStatus }) {
+export function createLiveFeed({ onEvent, onStatus, onUnauthorized }) {
   let socket = null
   let retryDelay = INITIAL_RETRY_MS
   let retryTimer = null
@@ -52,8 +53,16 @@ export function createLiveFeed({ onEvent, onStatus }) {
     if (closedByUs || socket) return
     setStatus('connecting')
 
+    // Read at connect time, not once at setup: after logging out and back
+    // in, a reconnect has to carry the new token.
+    const token = readToken()
+    if (!token) {
+      setStatus('offline')
+      return
+    }
+
     try {
-      socket = new WebSocket(websocketUrl())
+      socket = new WebSocket(websocketUrl(token))
     } catch {
       setStatus('offline')
       scheduleReconnect()
@@ -83,14 +92,23 @@ export function createLiveFeed({ onEvent, onStatus }) {
       // `onclose` always follows, which is where reconnection is handled.
     }
 
-    socket.onclose = () => {
+    socket.onclose = (closeEvent) => {
       if (pingTimer) clearInterval(pingTimer)
       pingTimer = null
       socket = null
-      if (!closedByUs) {
+      if (closedByUs) return
+
+      // 1008 is the server refusing the token. Reconnecting cannot fix that,
+      // and retrying behind the backoff would hammer the API forever, so hand
+      // it to the auth store to clear the session instead.
+      if (closeEvent?.code === 1008) {
         setStatus('offline')
-        scheduleReconnect()
+        onUnauthorized?.()
+        return
       }
+
+      setStatus('offline')
+      scheduleReconnect()
     }
   }
 

@@ -18,6 +18,14 @@ db.version(1).stores({
   meta: 'key',
 })
 
+// v2 adds the events mirror. Dexie migrates an existing database in place, so
+// an app that was already installed keeps its cached recipes.
+db.version(2).stores({
+  recipes: 'id, name, type, updated_at',
+  events: 'id, starts_on, name',
+  meta: 'key',
+})
+
 const LAST_SYNC_KEY = 'lastSync'
 
 /**
@@ -70,6 +78,65 @@ export async function removeCached(id) {
     await writeLastSync(new Date().toISOString())
   } catch (error) {
     console.warn('Could not remove cached recipe', error)
+  }
+}
+
+// ------------------------------------------------------------------ events
+
+export async function readCachedEvents() {
+  try {
+    return await db.events.toArray()
+  } catch (error) {
+    console.warn('Event cache unreadable, starting empty', error)
+    return []
+  }
+}
+
+export async function replaceEventCache(events) {
+  try {
+    const plain = toPlain(events)
+    await db.transaction('rw', db.events, async () => {
+      await db.events.clear()
+      await db.events.bulkPut(plain)
+    })
+  } catch (error) {
+    console.warn('Could not write event cache', error)
+  }
+}
+
+export async function upsertCachedEvent(event) {
+  try {
+    await db.events.put(toPlain(event))
+  } catch (error) {
+    console.warn('Could not cache event', error)
+  }
+}
+
+export async function removeCachedEvent(id) {
+  try {
+    await db.events.delete(id)
+  } catch (error) {
+    console.warn('Could not remove cached event', error)
+  }
+}
+
+/**
+ * Wipe every cached row. Called on logout.
+ *
+ * The cache is per-browser, not per-account, and recipes are private now. If
+ * it survived a logout, the next person to sign in on the same device — or on
+ * the same phone — would be shown the previous user's recipes offline, before
+ * any `hello` event arrived to replace them.
+ */
+export async function clearCache() {
+  try {
+    await db.transaction('rw', db.recipes, db.events, db.meta, async () => {
+      await db.recipes.clear()
+      await db.events.clear()
+      await db.meta.clear()
+    })
+  } catch (error) {
+    console.warn('Could not clear cache', error)
   }
 }
 
