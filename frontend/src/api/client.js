@@ -102,10 +102,25 @@ export const api = {
   updateRecipe: (id, recipe) =>
     request(`/recipes/${id}`, { method: 'PUT', body: JSON.stringify(recipe) }),
   deleteRecipe: (id) => request(`/recipes/${id}`, { method: 'DELETE' }),
+  // Both call out to OpenAI, which routinely takes longer than the 8s default
+  // — that default is right for a slow *network*, not for a request that is
+  // legitimately still working. Image generation (+ the upload that follows)
+  // is the slower of the two.
   generateRecipe: (prompt) =>
-    request('/recipes/generate', { method: 'POST', body: JSON.stringify({ prompt }) }),
+    request('/recipes/generate', {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+      timeoutMs: 30000,
+    }),
   generateRecipeImage: (id, prompt = '') =>
-    request(`/recipes/${id}/image`, { method: 'POST', body: JSON.stringify({ prompt }) }),
+    request(`/recipes/${id}/image`, {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+      // Measured ~38s for a single gpt-image-1 call; this runs fully in the
+      // background (the create dialog is already closed), so there is no
+      // UX cost to a generous margin — only to cutting it off too early.
+      timeoutMs: 90000,
+    }),
   listAisles: () => request('/aisles'),
   detectAisle: (name) => request(`/aisles/detect?name=${encodeURIComponent(name)}`),
   health: () => request('/health'),

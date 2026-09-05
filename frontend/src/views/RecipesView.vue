@@ -95,19 +95,29 @@ watch(formOpen, (open) => {
   if (!open) aiDraft.value = null
 })
 
+// Best-effort and fire-and-forget: the recipe already exists either way, and
+// a `recipe.updated` event will fill in the picture once it's ready.
+function requestImage(id) {
+  api.generateRecipeImage(id).catch((error) => {
+    console.warn('Image generation skipped:', error)
+  })
+}
+
 async function handleSubmit(payload) {
   if (editingRecipe.value) {
-    await store.updateRecipe(editingRecipe.value.id, payload)
+    const before = editingRecipe.value
+    await store.updateRecipe(before.id, payload)
+    // The picture illustrates the name and notes specifically — anything
+    // else (ingredients, timing, type…) changing doesn't make it stale.
+    if (payload.name !== before.name || payload.notes !== before.notes) {
+      requestImage(before.id)
+    }
     return
   }
 
   const created = await store.createRecipe(payload)
   if (created) {
-    // Best-effort and fire-and-forget: the recipe already exists either way,
-    // and a `recipe.updated` event will fill in the picture once it's ready.
-    api.generateRecipeImage(created.id).catch((error) => {
-      console.warn('Image generation skipped:', error)
-    })
+    requestImage(created.id)
     // On desktop the new recipe shows up right away in its preview panel;
     // on mobile that panel doesn't exist, so there is nothing to select.
     if (mdAndUp.value) open(created)

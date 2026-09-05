@@ -115,7 +115,8 @@ def generate_recipe_image(recipe_name: str, notes: str = "") -> bytes:
     response = client.images.generate(
         model=settings.openai_image_model,
         prompt=prompt,
-        size="1024x1024",
+        size="1024x640",
+        quality="low",
         n=1,
     )
     return base64.b64decode(response.data[0].b64_json)
