@@ -204,9 +204,26 @@ def update_recipe(recipe_id: str, data: RecipeUpdate, owner_id: str) -> Optional
     payload["owner_id"] = owner_id
     payload["created_at"] = existing.get("created_at", utcnow_iso())
     payload["updated_at"] = utcnow_iso()
+    # `replace()` overwrites the whole document, so a field the edit form
+    # never sends — the AI-generated image — has to be carried over by hand
+    # or it would be wiped on the next save.
+    payload["image_url"] = existing.get("image_url", "")
 
     meta = collection.replace(payload, return_new=True)
     return _to_recipe(meta["new"])
+
+
+def set_recipe_image(recipe_id: str, owner_id: str, image_url: str) -> Optional[Recipe]:
+    """Attach a generated image to a recipe, well after it was created."""
+    collection = get_db().collection(COLLECTION)
+    existing = collection.get(recipe_id)
+    if not existing or existing.get("owner_id") != owner_id:
+        return None
+
+    collection.update(
+        {"_key": recipe_id, "image_url": image_url, "updated_at": utcnow_iso()}
+    )
+    return _to_recipe(collection.get(recipe_id))
 
 
 def delete_recipe(recipe_id: str, owner_id: str) -> bool:

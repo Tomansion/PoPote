@@ -1,8 +1,11 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 
 import { api } from '@/api/client'
-import { RECIPE_TYPES } from '@/stores/recipes'
+import { RECIPE_TYPES, useRecipesStore } from '@/stores/recipes'
+
+const { categories } = storeToRefs(useRecipesStore())
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -17,7 +20,10 @@ const emit = defineEmits(['update:modelValue'])
 
 const UNITS = ['g', 'kg', 'ml', 'cl', 'l', 'u.', 'c.à.s', 'c.à.c', 'pincée', 'tranches']
 
-const isEdit = computed(() => Boolean(props.recipe))
+// An AI-generated draft is passed in via `recipe` too, so it can prefill the
+// form, but it has no `id` yet — only a real edit should say so, or read the
+// aisle already picked for each ingredient as final (see the watcher below).
+const isEdit = computed(() => Boolean(props.recipe?.id))
 const saving = ref(false)
 const nameError = ref('')
 const aisles = ref([])
@@ -32,6 +38,7 @@ function blankForm() {
   return {
     name: '',
     type: 'Plat',
+    category: '',
     servings: 4,
     prep_minutes: null,
     cook_minutes: null,
@@ -52,10 +59,14 @@ watch(
     nameError.value = ''
 
     if (props.recipe) {
+      // A real edit carries aisles already picked for this recipe, which
+      // must not be silently overwritten. An AI draft's ingredients are new
+      // to the form, exactly like ones just typed in — let detection run.
+      const keepAisles = isEdit.value
       form.value = {
         ...JSON.parse(JSON.stringify(props.recipe)),
         ingredients: props.recipe.ingredients.length
-          ? props.recipe.ingredients.map((i) => ({ ...i, aisleOverridden: true }))
+          ? props.recipe.ingredients.map((i) => ({ ...i, aisleOverridden: keepAisles }))
           : [blankIngredient()],
         steps: props.recipe.steps.length ? [...props.recipe.steps] : [''],
       }
@@ -150,6 +161,7 @@ async function submit() {
   const payload = {
     name: form.value.name.trim(),
     type: form.value.type,
+    category: form.value.category?.trim() || '',
     servings: Number(form.value.servings) || 1,
     prep_minutes: Number(form.value.prep_minutes) || 0,
     cook_minutes: Number(form.value.cook_minutes) || 0,
@@ -211,13 +223,31 @@ async function submit() {
           autofocus
         />
 
-        <div class="d-flex ga-3 mb-3">
-          <v-select v-model="form.type" :items="RECIPE_TYPES" label="Type" />
+        <div class="d-flex ga-3 mb-3 flex-wrap">
+          <v-select
+            v-model="form.type"
+            :items="RECIPE_TYPES"
+            label="Type"
+            class="flex-1-1"
+            style="min-width: 140px"
+          />
+          <v-combobox
+            v-model="form.category"
+            :items="categories"
+            label="Catégorie"
+            hint="Ex. Asiatique, Hiver, Été…"
+            persistent-hint
+            clearable
+            class="flex-1-1"
+            style="min-width: 140px"
+          />
           <v-text-field
             v-model.number="form.servings"
             label="Portions"
             type="number"
             min="1"
+            class="flex-1-1"
+            style="min-width: 100px"
           />
         </div>
 

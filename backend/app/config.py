@@ -28,6 +28,24 @@ class Settings(BaseSettings):
     # nobody should be asked to log in again on their phone every few weeks.
     jwt_ttl_days: int = 3650
 
+    # AI recipe/image generation. Left empty, both features are simply
+    # disabled — this whole area is optional flavor on top of the core CRUD.
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    openai_image_model: str = "gpt-image-1"
+
+    # Object storage for generated recipe images. Left empty, image
+    # generation is disabled even if an OpenAI key is set — there would be
+    # nowhere to put the result.
+    minio_endpoint: str = ""
+    minio_access_key: str = "popote"
+    minio_secret_key: str = "popote1234"
+    minio_bucket: str = "popote-recipes"
+    minio_secure: bool = False
+    # What the *browser* can reach — different from minio_endpoint whenever
+    # that one is an internal container hostname, as in docker-compose.
+    minio_public_url: str = "http://localhost:9000"
+
     @property
     def cors_origin_list(self) -> list[str]:
         if self.cors_origins.strip() == "*":

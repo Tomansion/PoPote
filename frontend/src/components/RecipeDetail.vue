@@ -93,6 +93,17 @@ const chips = computed(() => {
     </div>
 
     <div class="em-scroll flex-grow-1 pe-1">
+      <!-- Only shown once the AI has generated a real photo — the small
+           placeholder blur used on cards would look like a mistake this big. -->
+      <v-img
+        v-if="recipe.image_url"
+        :src="recipe.image_url"
+        height="200"
+        cover
+        rounded="lg"
+        class="em-outline mb-4"
+      />
+
       <h2 class="text-h6 font-weight-medium mb-3">{{ recipe.name }}</h2>
 
       <div class="d-flex flex-wrap ga-2 mb-5">

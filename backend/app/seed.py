@@ -6,6 +6,7 @@ DEMO_RECIPES: list[RecipeCreate] = [
     RecipeCreate(
         name="Gratin dauphinois",
         type="Plat",
+        category="Hiver",
         servings=4,
         prep_minutes=20,
         cook_minutes=60,
@@ -30,6 +31,7 @@ DEMO_RECIPES: list[RecipeCreate] = [
     RecipeCreate(
         name="Salade de lentilles au chèvre",
         type="Entrée",
+        category="Été",
         servings=2,
         prep_minutes=15,
         cook_minutes=25,
@@ -52,6 +54,7 @@ DEMO_RECIPES: list[RecipeCreate] = [
     RecipeCreate(
         name="Mousse au chocolat",
         type="Dessert",
+        category="Franchouillard",
         servings=6,
         prep_minutes=20,
         cook_minutes=0,
@@ -74,6 +77,7 @@ DEMO_RECIPES: list[RecipeCreate] = [
     RecipeCreate(
         name="Poulet au curry et lait de coco",
         type="Plat",
+        category="Asiatique",
         servings=4,
         prep_minutes=15,
         cook_minutes=30,
@@ -96,6 +100,7 @@ DEMO_RECIPES: list[RecipeCreate] = [
     RecipeCreate(
         name="Vinaigrette maison",
         type="Sauce/Base",
+        category="Franchouillard",
         servings=8,
         prep_minutes=5,
         cook_minutes=0,
@@ -114,6 +119,7 @@ DEMO_RECIPES: list[RecipeCreate] = [
     RecipeCreate(
         name="Tartines avocat-oeuf",
         type="Petit-déj.",
+        category="Été",
         servings=2,
         prep_minutes=10,
         cook_minutes=5,

@@ -3,10 +3,17 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from .. import db
+from .. import ai, db, storage
 from ..aisles import AISLES, detect_aisle
 from ..auth import CurrentUser, user_from_ws_token
-from ..models import Recipe, RecipeCreate, RecipeUpdate, WSEvent
+from ..models import (
+    Recipe,
+    RecipeCreate,
+    RecipeImagePrompt,
+    RecipePrompt,
+    RecipeUpdate,
+    WSEvent,
+)
 from ..ws import manager
 
 logger = logging.getLogger(__name__)
@@ -41,6 +48,64 @@ async def create_recipe(payload: RecipeCreate, user: CurrentUser) -> Recipe:
     recipe = await asyncio.to_thread(db.create_recipe, payload, user.id)
     await manager.send_to_user(user.id, WSEvent(type="recipe.created", recipe=recipe))
     return recipe
+
+
+@router.post("/recipes/generate", response_model=RecipeCreate)
+async def generate_recipe(payload: RecipePrompt, user: CurrentUser) -> RecipeCreate:
+    """Turn a free-text prompt into a draft recipe, via an OpenAI tool call.
+
+    Returns a draft only — nothing is saved here. The frontend shows it in
+    the usual create form so the user reviews (and can edit) it before it
+    becomes a real recipe through the normal POST /recipes.
+    """
+    try:
+        return await asyncio.to_thread(ai.generate_recipe, payload.prompt)
+    except ai.AIDisabled as exc:
+        raise HTTPException(
+            status_code=503, detail="Génération IA non configurée sur ce serveur"
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 — any SDK/parsing failure, same fallback
+        logger.warning("Recipe generation failed: %s", exc)
+        raise HTTPException(
+            status_code=502, detail="La génération a échoué, réessayez"
+        ) from exc
+
+
+@router.post("/recipes/{recipe_id}/image", response_model=Recipe)
+async def generate_recipe_image(
+    recipe_id: str, payload: RecipeImagePrompt, user: CurrentUser
+) -> Recipe:
+    """Generate a picture for an existing recipe and attach it.
+
+    Best-effort and separate from creation itself: the recipe already exists
+    with or without a picture, so a slow or failed image call never blocks
+    (or loses) the recipe it is meant to illustrate.
+    """
+    recipe = await asyncio.to_thread(db.get_recipe, recipe_id, user.id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    try:
+        image_bytes = await asyncio.to_thread(
+            ai.generate_recipe_image, recipe.name, payload.prompt or recipe.notes
+        )
+    except ai.AIDisabled as exc:
+        raise HTTPException(
+            status_code=503, detail="Génération IA non configurée sur ce serveur"
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Image generation failed: %s", exc)
+        raise HTTPException(
+            status_code=502, detail="La génération d'image a échoué"
+        ) from exc
+
+    image_url = await asyncio.to_thread(storage.upload_image, image_bytes)
+    if image_url is None:
+        raise HTTPException(status_code=503, detail="Stockage d'image non configuré")
+
+    updated = await asyncio.to_thread(db.set_recipe_image, recipe_id, user.id, image_url)
+    await manager.send_to_user(user.id, WSEvent(type="recipe.updated", recipe=updated))
+    return updated
 
 
 @router.put("/recipes/{recipe_id}", response_model=Recipe)

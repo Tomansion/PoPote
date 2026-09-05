@@ -25,6 +25,9 @@ class Ingredient(BaseModel):
 class RecipeBase(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     type: RecipeType = "Plat"
+    # Free-form grouping ("Asiatique", "Hiver", ...), shown as the mobile
+    # carousel rows. Distinct from `type`, which drives the existing filters.
+    category: str = Field(default="", max_length=60)
     servings: int = Field(default=4, ge=1, le=100)
     prep_minutes: int = Field(default=0, ge=0, le=6000)
     cook_minutes: int = Field(default=0, ge=0, le=6000)
@@ -68,10 +71,26 @@ class Recipe(RecipeBase):
     owner_id: str = ""
     created_at: str
     updated_at: str
+    # Set asynchronously by POST /recipes/{id}/image, well after creation —
+    # never part of RecipeCreate/RecipeUpdate, so the edit form can't touch it.
+    image_url: str = ""
 
     @property
     def total_minutes(self) -> int:
         return self.prep_minutes + self.cook_minutes
+
+
+class RecipePrompt(BaseModel):
+    """Free-text ask for POST /recipes/generate."""
+
+    prompt: str = Field(min_length=1, max_length=2000)
+
+
+class RecipeImagePrompt(BaseModel):
+    """Optional steer for POST /recipes/{id}/image; falls back to the recipe
+    itself (name + notes) when left blank."""
+
+    prompt: str = ""
 
 
 # ---------------------------------------------------------------- accounts

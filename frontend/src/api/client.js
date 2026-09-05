@@ -102,6 +102,10 @@ export const api = {
   updateRecipe: (id, recipe) =>
     request(`/recipes/${id}`, { method: 'PUT', body: JSON.stringify(recipe) }),
   deleteRecipe: (id) => request(`/recipes/${id}`, { method: 'DELETE' }),
+  generateRecipe: (prompt) =>
+    request('/recipes/generate', { method: 'POST', body: JSON.stringify({ prompt }) }),
+  generateRecipeImage: (id, prompt = '') =>
+    request(`/recipes/${id}/image`, { method: 'POST', body: JSON.stringify({ prompt }) }),
   listAisles: () => request('/aisles'),
   detectAisle: (name) => request(`/aisles/detect?name=${encodeURIComponent(name)}`),
   health: () => request('/health'),

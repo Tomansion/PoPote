@@ -22,6 +22,26 @@ services:
       retries: 20
       start_period: 20s
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-popote}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-popote1234}
+    ports:
+      # S3 API at 9000, web console at http://localhost:9001.
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
   backend:
     build: ./backend
     environment:
@@ -37,11 +57,26 @@ services:
       # keeps it in ArangoDB, so sessions survive restarts with no config.
       JWT_SECRET: ${JWT_SECRET:-}
       JWT_TTL_DAYS: ${JWT_TTL_DAYS:-3650}
+      # AI recipe/image generation. Left empty, both features are simply
+      # disabled — this whole area is optional flavor on top of the core CRUD.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-1}
+      # Where generated recipe images are stored.
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-popote}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-popote1234}
+      MINIO_BUCKET: ${MINIO_BUCKET:-popote-recipes}
+      # What the *browser* can reach — different from MINIO_ENDPOINT whenever
+      # that one is an internal container hostname, as it is by default here.
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
     depends_on:
       arangodb:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     ports:
-      - 8000:8000"
+      - "8000:8000"
     restart: unless-stopped
 
   frontend:
@@ -55,3 +90,4 @@ services:
 volumes:
   arango_data:
   arango_apps:
+  minio_data:

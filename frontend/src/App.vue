@@ -7,7 +7,6 @@ import { useDisplay } from 'vuetify'
 import IntroSplash from '@/components/IntroSplash.vue'
 import ProfileAvatarButton from '@/components/ProfileAvatarButton.vue'
 import ProfilePanel from '@/components/ProfilePanel.vue'
-import RecipeFilters from '@/components/RecipeFilters.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useEventsStore } from '@/stores/events'
 import { useRecipesStore } from '@/stores/recipes'
@@ -19,7 +18,7 @@ const { mdAndUp } = useDisplay()
 const store = useRecipesStore()
 const auth = useAuthStore()
 const events = useEventsStore()
-const { search, toast } = storeToRefs(store)
+const { toast } = storeToRefs(store)
 const { toast: eventToast } = storeToRefs(events)
 
 const snackbar = ref(false)
@@ -48,11 +47,10 @@ const NAV_ITEMS = [
 
 const activeNav = computed(() => route.meta.nav ?? 'recipes')
 
-// The mobile detail screen supplies its own "← retour" header, so the global
-// app bar would be a duplicate there.
-const showMobileAppBar = computed(() => !mdAndUp.value && !route.meta.detail)
-
-const isRecipesSection = computed(() => activeNav.value === 'recipes')
+// The detail screen supplies its own "← retour" header, so the global app bar
+// would be a duplicate there — true at every width now that the recipe list
+// and its detail page share the same layout on mobile and desktop.
+const showAppBar = computed(() => !route.meta.detail)
 
 // Plays once per app start, on the web and in the APK alike. Skipped outright
 // for anyone who asked the system for less motion.
@@ -94,7 +92,7 @@ onBeforeUnmount(() => store.stop())
          transform, which would break this drawer's full-screen overlay. -->
     <ProfilePanel v-model="profileOpen" />
 
-    <!-- ============ Desktop: permanent drawer with nav + filters ============ -->
+    <!-- ============ Desktop: permanent navigation drawer ============ -->
     <v-navigation-drawer
       v-if="mdAndUp"
       permanent
@@ -119,45 +117,11 @@ onBeforeUnmount(() => store.stop())
             @click="router.push(item.to)"
           />
         </v-list>
-
-        <template v-if="isRecipesSection">
-          <div class="text-caption em-muted mt-8 mb-3 ps-1">FILTRES</div>
-          <RecipeFilters layout="panel" />
-        </template>
       </div>
-
-      <template #append>
-        <div class="pa-4">
-          <v-btn
-            v-if="isRecipesSection"
-            block
-            size="large"
-            class="mb-3"
-            @click="store.openCreateForm()"
-          >
-            + Nouvelle recette
-          </v-btn>
-        </div>
-      </template>
     </v-navigation-drawer>
 
-    <!-- ============ Desktop top bar: search ============ -->
-    <v-app-bar v-if="mdAndUp" flat height="64" color="background">
-      <div class="d-flex align-center ga-4 px-4 fill-height" style="width: 100%">
-        <v-text-field
-          v-model="search"
-          placeholder="Rechercher"
-          prepend-inner-icon="mdi-magnify"
-          rounded="pill"
-          clearable
-          hide-details
-          style="max-width: 520px"
-        />
-      </div>
-    </v-app-bar>
-
-    <!-- ============ Mobile top bar: avatar on the left, centred title ============ -->
-    <v-app-bar v-else-if="showMobileAppBar" flat color="background">
+    <!-- ============ Top bar: avatar on the left, centred title — same at every width ============ -->
+    <v-app-bar v-if="showAppBar" flat color="background">
       <template #prepend>
         <div class="ps-2">
           <ProfileAvatarButton :size="32" @click="profileOpen = true" />

@@ -94,6 +94,33 @@ export const useRecipesStore = defineStore('recipes', () => {
     return [type, temperature, maxMinutes, favoritesOnly || null].filter(Boolean).length
   })
 
+  // Distinct categories in use, for the create/edit form's suggestions.
+  const categories = computed(() => {
+    const set = new Set(recipes.value.map((r) => r.category).filter(Boolean))
+    return [...set].sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }))
+  })
+
+  const UNCATEGORIZED = 'Autres'
+
+  // The mobile home groups recipes into per-category rows, in whatever order
+  // filteredRecipes already put them in — uncategorized recipes land in one
+  // "Autres" row, always last.
+  const recipesByCategory = computed(() => {
+    const groups = new Map()
+    for (const recipe of filteredRecipes.value) {
+      const key = recipe.category || UNCATEGORIZED
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(recipe)
+    }
+
+    const ordered = [...groups.keys()]
+      .filter((key) => key !== UNCATEGORIZED)
+      .sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }))
+    if (groups.has(UNCATEGORIZED)) ordered.push(UNCATEGORIZED)
+
+    return ordered.map((category) => ({ category, recipes: groups.get(category) }))
+  })
+
   function byId(id) {
     return recipes.value.find((recipe) => recipe.id === id) ?? null
   }
@@ -324,6 +351,8 @@ export const useRecipesStore = defineStore('recipes', () => {
     sortDesc,
     filters,
     filteredRecipes,
+    recipesByCategory,
+    categories,
     activeFilterCount,
     byId,
     totalMinutes,
