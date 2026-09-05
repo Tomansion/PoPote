@@ -100,13 +100,9 @@ docker compose up --build
 | | URL |
 |---|---|
 | Web app | <http://localhost:8080> |
-| API docs | <http://localhost:8100/docs> |
 | ArangoDB UI | <http://localhost:8529> (user `root`, password `popote`) |
 
 Six demo recipes are inserted on first start, when the collection is empty.
-
-> Ports 8100 and 8080 are used instead of the more usual 8000/80 because
-> port 8000 is already taken on the current dev machine.
 
 ### Option B — Run the two services directly
 
@@ -118,7 +114,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
 cp .env.example .env         # then edit: point ARANGO_* at your database
-.venv/bin/uvicorn app.main:app --reload --port 8100
+.venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
 **Frontend** (needs Node 20.19+ or 22.12+):
@@ -128,9 +124,6 @@ cd frontend
 npm install
 npm run serve                  # http://localhost:5173
 ```
-
-The dev server proxies `/api` (including the WebSocket upgrade) to
-`localhost:8100`, so no CORS setup is needed while developing.
 
 To see the live sync working, open <http://localhost:5173> in two windows and
 add a recipe in one.

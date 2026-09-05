@@ -8,7 +8,6 @@ import RecipeCard from '@/components/RecipeCard.vue'
 import RecipeDetail from '@/components/RecipeDetail.vue'
 import RecipeFilters from '@/components/RecipeFilters.vue'
 import RecipeFormDialog from '@/components/RecipeFormDialog.vue'
-import SyncStatus from '@/components/SyncStatus.vue'
 import { useRecipesStore } from '@/stores/recipes'
 
 const route = useRoute()
@@ -172,9 +171,7 @@ function notImplemented(message) {
       </div>
     </div>
 
-    <SyncStatus class="my-3" />
-
-    <v-btn block size="large" @click="startCreate">+ Nouvelle recette</v-btn>
+    <v-btn block size="large" class="mt-3" @click="startCreate">+ Nouvelle recette</v-btn>
   </div>
 
   <!-- Floating create button on desktop lives in the drawer; see App.vue -->

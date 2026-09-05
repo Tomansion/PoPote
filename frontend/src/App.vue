@@ -5,9 +5,9 @@ import { storeToRefs } from 'pinia'
 import { useDisplay } from 'vuetify'
 
 import IntroSplash from '@/components/IntroSplash.vue'
-import ProfileMenu from '@/components/ProfileMenu.vue'
+import ProfileAvatarButton from '@/components/ProfileAvatarButton.vue'
+import ProfilePanel from '@/components/ProfilePanel.vue'
 import RecipeFilters from '@/components/RecipeFilters.vue'
-import SyncStatus from '@/components/SyncStatus.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useEventsStore } from '@/stores/events'
 import { useRecipesStore } from '@/stores/recipes'
@@ -24,6 +24,7 @@ const { toast: eventToast } = storeToRefs(events)
 
 const snackbar = ref(false)
 const activeToast = ref(null)
+const profileOpen = ref(false)
 
 // Both stores raise toasts; whichever fires last wins the one snackbar.
 watch([toast, eventToast], () => {
@@ -88,6 +89,11 @@ onBeforeUnmount(() => store.stop())
     </v-main>
 
     <template v-else>
+    <!-- The panel lives at the top level of the shell, not nested inside the
+         app bar or the permanent drawer below — both apply their own CSS
+         transform, which would break this drawer's full-screen overlay. -->
+    <ProfilePanel v-model="profileOpen" />
+
     <!-- ============ Desktop: permanent drawer with nav + filters ============ -->
     <v-navigation-drawer
       v-if="mdAndUp"
@@ -98,7 +104,10 @@ onBeforeUnmount(() => store.stop())
       class="em-outline"
     >
       <div class="pa-4">
-        <div class="text-subtitle-1 font-weight-medium mb-6">Po'Pote</div>
+        <div class="d-flex align-center ga-3 mb-6">
+          <ProfileAvatarButton :size="36" @click="profileOpen = true" />
+          <div class="text-subtitle-1 font-weight-medium">Po'Pote</div>
+        </div>
 
         <v-list density="compact" nav class="pa-0">
           <v-list-item
@@ -128,16 +137,11 @@ onBeforeUnmount(() => store.stop())
           >
             + Nouvelle recette
           </v-btn>
-
-          <div class="d-flex align-center ga-3">
-            <ProfileMenu :size="36" />
-            <div class="text-body-2 text-truncate">{{ auth.user?.display_name }}</div>
-          </div>
         </div>
       </template>
     </v-navigation-drawer>
 
-    <!-- ============ Desktop top bar: search + sync ============ -->
+    <!-- ============ Desktop top bar: search ============ -->
     <v-app-bar v-if="mdAndUp" flat height="64" color="background">
       <div class="d-flex align-center ga-4 px-4 fill-height" style="width: 100%">
         <v-text-field
@@ -149,26 +153,19 @@ onBeforeUnmount(() => store.stop())
           hide-details
           style="max-width: 520px"
         />
-        <v-spacer />
-        <SyncStatus compact />
       </div>
     </v-app-bar>
 
-    <!-- ============ Mobile top bar: centred title ============ -->
+    <!-- ============ Mobile top bar: avatar on the left, centred title ============ -->
     <v-app-bar v-else-if="showMobileAppBar" flat color="background">
       <template #prepend>
         <div class="ps-2">
-          <SyncStatus compact />
+          <ProfileAvatarButton :size="32" @click="profileOpen = true" />
         </div>
       </template>
       <v-app-bar-title class="text-center text-subtitle-1">
         {{ route.meta.title }}
       </v-app-bar-title>
-      <template #append>
-        <div class="pe-2">
-          <ProfileMenu :size="32" />
-        </div>
-      </template>
     </v-app-bar>
 
     <v-main>

@@ -41,9 +41,7 @@ services:
       arangodb:
         condition: service_healthy
     ports:
-      # Exposed for direct access / API docs at http://localhost:8100/docs.
-      # 8100 rather than 8000, which is often already in use.
-      - "8100:8000"
+      - 8000:8000"
     restart: unless-stopped
 
   frontend:

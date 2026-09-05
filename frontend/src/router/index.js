@@ -55,6 +55,27 @@ const routes = [
       blurb: 'Regrouper les ingrédients par rayon pour vos courses.',
     },
   },
+  {
+    // Reached from the profile side panel, not the bottom/drawer navigation.
+    path: '/friends',
+    name: 'friends',
+    component: PlaceholderView,
+    meta: {
+      title: 'Mes amis',
+      icon: 'mdi-account-group-outline',
+      blurb: 'Retrouvez vos amis et partagez vos recettes.',
+    },
+  },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: PlaceholderView,
+    meta: {
+      title: 'Paramètres',
+      icon: 'mdi-cog-outline',
+      blurb: 'Réglages du compte et de l’application.',
+    },
+  },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
