@@ -22,20 +22,23 @@ services:
       retries: 20
       start_period: 20s
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  rustfs:
+    image: rustfs/rustfs:latest
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-popote}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-popote1234}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-popote}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-popote1234}
     ports:
       # S3 API at 9000, web console at http://localhost:9001.
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio_data:/data
+      - rustfs_data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 5s
       timeout: 10s
       retries: 20
@@ -44,4 +47,4 @@ services:
 volumes:
   arango_data:
   arango_apps:
-  minio_data:
+  rustfs_data:

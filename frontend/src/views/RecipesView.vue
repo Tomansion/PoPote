@@ -47,6 +47,10 @@ const aiPromptOpen = ref(false)
 const aiPrompt = ref('')
 const aiBusy = ref(false)
 const aiDraft = ref(null)
+const aiError = ref('')
+// Matches the backend's RecipePrompt.prompt max_length — kept in sync by
+// hand since there's no shared schema between the two apps.
+const AI_PROMPT_MAX_LENGTH = 2000
 
 function startCreate() {
   aiChoiceOpen.value = true
@@ -61,6 +65,7 @@ function startBlankCreate() {
 function startAICreate() {
   aiChoiceOpen.value = false
   aiPrompt.value = ''
+  aiError.value = ''
   aiPromptOpen.value = true
 }
 
@@ -69,14 +74,16 @@ async function submitAIPrompt() {
   if (!prompt || aiBusy.value) return
 
   aiBusy.value = true
+  aiError.value = ''
   try {
     aiDraft.value = await api.generateRecipe(prompt)
     aiPromptOpen.value = false
     store.openCreateForm()
   } catch (error) {
-    const message =
+    // Shown right in the dialog rather than as a toast elsewhere on screen —
+    // the prompt that caused it is still right there to fix and retry.
+    aiError.value =
       error instanceof ApiError ? error.message : 'La génération a échoué, réessayez'
-    store.toast = { message, color: 'error', at: Date.now() }
   } finally {
     aiBusy.value = false
   }
@@ -267,9 +274,15 @@ function notImplemented(message) {
           placeholder="Ex. Un curry de légumes d'automne, épicé, prêt en 30 min"
           rows="3"
           autofocus
-          hide-details
+          :maxlength="AI_PROMPT_MAX_LENGTH"
+          counter
+          hide-details="auto"
           @keydown.enter.ctrl="submitAIPrompt"
+          @update:model-value="aiError = ''"
         />
+        <v-alert v-if="aiError" type="error" variant="tonal" density="compact" class="mt-3">
+          {{ aiError }}
+        </v-alert>
       </v-card-text>
       <v-card-actions>
         <v-spacer />

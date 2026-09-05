@@ -1,5 +1,5 @@
 from datetime import date, datetime, timezone
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
@@ -14,12 +14,15 @@ def utcnow_iso() -> str:
 
 
 class Ingredient(BaseModel):
-    name: str
-    quantity: Optional[float] = None
-    unit: str = ""
+    # No min_length: drop_blank_ingredients below relies on being able to see
+    # (and silently drop) a blank name rather than have the whole request
+    # rejected — the create form always sends a couple of empty starter rows.
+    name: str = Field(default="", max_length=200)
+    quantity: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    unit: str = Field(default="", max_length=30)
     # Filled in by the server from `name` when the client leaves it empty,
     # but a client-supplied value always wins (the user can override it).
-    aisle: str = ""
+    aisle: str = Field(default="", max_length=60)
 
 
 class RecipeBase(BaseModel):
@@ -33,9 +36,14 @@ class RecipeBase(BaseModel):
     cook_minutes: int = Field(default=0, ge=0, le=6000)
     temperature: Temperature = "Chaud"
     favorite: bool = False
-    ingredients: list[Ingredient] = Field(default_factory=list)
-    steps: list[str] = Field(default_factory=list)
-    notes: str = ""
+    # Capped list length and per-item length alike: an unbounded list (or an
+    # unbounded string in it) is a cheap way to bloat a document — whether
+    # from a client with too much time or a hallucinating AI generation.
+    ingredients: list[Ingredient] = Field(default_factory=list, max_length=200)
+    steps: list[Annotated[str, Field(max_length=2000)]] = Field(
+        default_factory=list, max_length=200
+    )
+    notes: str = Field(default="", max_length=4000)
 
     @field_validator("name")
     @classmethod
@@ -90,7 +98,7 @@ class RecipeImagePrompt(BaseModel):
     """Optional steer for POST /recipes/{id}/image; falls back to the recipe
     itself (name + notes) when left blank."""
 
-    prompt: str = ""
+    prompt: str = Field(default="", max_length=500)
 
 
 # ---------------------------------------------------------------- accounts

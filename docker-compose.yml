@@ -22,20 +22,25 @@ services:
       retries: 20
       start_period: 20s
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  rustfs:
+    image: rustfs/rustfs:latest
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-popote}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-popote1234}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      # SECURITY: these defaults are public and well-known — override via a
+      # .env next to this file before exposing the listener beyond localhost.
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-popote}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-popote1234}
     ports:
       # S3 API at 9000, web console at http://localhost:9001.
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio_data:/data
+      - rustfs_data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 5s
       timeout: 10s
       retries: 20
@@ -63,17 +68,17 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-1}
       # Where generated recipe images are stored.
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-popote}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-popote1234}
-      MINIO_BUCKET: ${MINIO_BUCKET:-popote-recipes}
-      # What the *browser* can reach — different from MINIO_ENDPOINT whenever
+      RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT:-rustfs:9000}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-popote}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-popote1234}
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-popote-recipes}
+      # What the *browser* can reach — different from RUSTFS_ENDPOINT whenever
       # that one is an internal container hostname, as it is by default here.
-      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
+      RUSTFS_PUBLIC_URL: ${RUSTFS_PUBLIC_URL:-http://localhost:9000}
     depends_on:
       arangodb:
         condition: service_healthy
-      minio:
+      rustfs:
         condition: service_healthy
     ports:
       - "8000:8000"
@@ -90,4 +95,4 @@ services:
 volumes:
   arango_data:
   arango_apps:
-  minio_data:
+  rustfs_data:
