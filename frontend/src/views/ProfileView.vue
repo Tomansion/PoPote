@@ -93,8 +93,7 @@ async function save() {
         <SectionHeader icon="mdi-silverware-fork-knife" title="À table" />
         <p class="text-body-2 em-muted mb-4">
           Ce que voient les personnes avec qui vous organisez un événement, pour
-          savoir quoi cuisiner — et pour le plaisir. Tout est facultatif : les
-          réponses laissées vides ne sont affichées nulle part.
+          savoir quoi cuisiner, et pour le plaisir. Tout est facultatif !
           <span v-if="answeredCount" class="em-mono">
             ({{ answeredCount }}/10 remplies)
           </span>

@@ -136,10 +136,18 @@ onBeforeUnmount(() => store.stop());
         class="em-outline"
       >
         <div class="pa-4">
-          <div class="d-flex align-center ga-3 mb-6 ps-1">
+          <!-- The logo is the way home, the way it is on every site: it sits
+               where "back to the start" is looked for, and nothing else in
+               the drawer says "Recettes" from inside a recipe. -->
+          <button
+            type="button"
+            class="d-flex align-center ga-3 mb-6 ps-1 pp-home"
+            aria-label="Accueil — mes recettes"
+            @click="router.push('/')"
+          >
             <AppLogo :size="36" />
             <div class="text-subtitle-1 font-weight-medium">Po'Pote</div>
-          </div>
+          </button>
 
           <v-list density="compact" nav class="pa-0">
             <v-list-item
@@ -163,9 +171,15 @@ onBeforeUnmount(() => store.stop());
             show-name
             @click="profileOpen = true"
           />
-          <div class="ps-2 d-flex align-center" v-if="!mdAndUp">
+          <button
+            v-if="!mdAndUp"
+            type="button"
+            class="ps-2 d-flex align-center pp-home"
+            aria-label="Accueil — mes recettes"
+            @click="router.push('/')"
+          >
             <AppLogo :size="28" />
-          </div>
+          </button>
         </template>
         <v-app-bar-title class="text-center text-subtitle-1">
           {{ route.meta.title }}
@@ -208,3 +222,19 @@ onBeforeUnmount(() => store.stop());
     </template>
   </v-app>
 </template>
+
+<style scoped>
+/* A button that has to look exactly like the logo it wraps. */
+.pp-home {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  text-align: start;
+}
+
+.pp-home:hover {
+  opacity: 0.75;
+}
+</style>

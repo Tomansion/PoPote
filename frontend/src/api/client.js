@@ -107,11 +107,29 @@ export const api = {
     }),
   movePlanMeals: (id, payload) =>
     request(`/events/${id}/plan/move`, { method: 'POST', body: JSON.stringify(payload) }),
+  // Who is on duty for a whole day, as opposed to who cooks one dish — that
+  // one rides along inside the slot itself.
+  setPlanDayCooks: (id, day, cooks) =>
+    request(`/events/${id}/plan/${day}/cooks`, {
+      method: 'PUT',
+      body: JSON.stringify({ cooks }),
+    }),
 
   // --- grocery lists
   listGroceryLists: () => request('/grocery-lists'),
+  // Generation now includes one LLM pass that merges the lines naming the same
+  // ingredient, so this is no longer a purely local computation — the deadline
+  // is the model's, not the database's.
   generateGroceryList: (eventId) =>
-    request(`/events/${eventId}/grocery-list`, { method: 'POST', timeoutMs: 20000 }),
+    request(`/events/${eventId}/grocery-list`, { method: 'POST', timeoutMs: 60000 }),
+  // One call for one line, one rayon or one recipe: the page knows which keys
+  // each of those covers. Members only — ticking is public, deciding who goes
+  // and gets it is not.
+  assignGroceryItems: (eventId, keys, assignees) =>
+    request(`/events/${eventId}/grocery-list/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ keys, assignees }),
+    }),
   // One LLM call over the whole list, which is well past the default deadline.
   priceGroceryList: (eventId) =>
     request(`/events/${eventId}/grocery-list/prices`, { method: 'POST', timeoutMs: 90000 }),

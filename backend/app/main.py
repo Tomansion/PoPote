@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="PoPote API",
-    version="0.5.0",
+    version="0.6.0",
     lifespan=lifespan,
     # Served behind nginx under /api in docker-compose and in production.
     root_path="",

@@ -134,6 +134,22 @@ export const useGroceryStore = defineStore('grocery', () => {
   }
 
   /**
+   * Put people on some lines of a list.
+   *
+   * One call whether it is one article, a whole rayon or everything a recipe
+   * needs — the page works out which keys that covers, since it is the thing
+   * that grouped them in the first place.
+   */
+  async function assign(eventId, keys, assignees) {
+    if (!keys.length) return
+    try {
+      remember(await api.assignGroceryItems(eventId, keys, assignees))
+    } catch (error) {
+      notify(errorMessage(error, 'Impossible d’assigner cet article'))
+    }
+  }
+
+  /**
    * Open a shared list and keep it live.
    *
    * Its own socket, keyed by the share code: whoever is looking at this page
@@ -197,6 +213,7 @@ export const useGroceryStore = defineStore('grocery', () => {
     generate,
     estimatePrices,
     toggleItem,
+    assign,
     openShared,
     stopShared,
     reset,

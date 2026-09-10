@@ -7,8 +7,10 @@ the person holding the trolley is often not the person who planned the meals,
 and asking them to make an account first would defeat the whole point.
 
 The public half is therefore deliberately unauthenticated: it can read one
-list and tick its boxes, and it can do nothing else. It cannot see the event,
-its members, or any recipe behind the list.
+list and tick its boxes, and it can do nothing else. It cannot see the event
+itself, the recipes behind the list, or anyone's email — it does see the
+members' names and avatars, because a line assigned to an id nobody can read
+tells the shopper nothing. Saying *who* fetches what stays with the members.
 """
 
 import asyncio
@@ -18,7 +20,13 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from .. import ai, db, groceries
 from ..auth import CurrentUser
-from ..models import GroceryCheck, GroceryList, GroceryListSummary, WSEvent
+from ..models import (
+    GroceryAssign,
+    GroceryCheck,
+    GroceryList,
+    GroceryListSummary,
+    WSEvent,
+)
 from ..ws import manager, rooms
 
 logger = logging.getLogger(__name__)
@@ -28,6 +36,18 @@ router = APIRouter()
 NO_LIST = HTTPException(status_code=404, detail="Liste de courses introuvable")
 
 
+async def _hydrate(grocery: GroceryList) -> GroceryList:
+    """Attach the event's members, so the ids on each line have faces.
+
+    Read from the event every time rather than stored on the list: someone who
+    joins after the list was generated should still show up as a possible pair
+    of hands, and someone who left should stop being offered.
+    """
+    event = await asyncio.to_thread(db.get_event_raw, grocery.event_id)
+    grocery.members = event.members if event is not None else []
+    return grocery
+
+
 async def _publish(grocery: GroceryList) -> None:
     """Push a changed list to both audiences at once.
 
@@ -35,12 +55,14 @@ async def _publish(grocery: GroceryList) -> None:
     per-user feed reaches members wherever they are in the app, which is what
     keeps the "Liste de courses" index fresh without polling.
     """
+    event = await asyncio.to_thread(db.get_event_raw, grocery.event_id)
+    grocery.members = event.members if event is not None else []
+
     payload = grocery.model_dump(mode="json")
     await rooms.broadcast(
         grocery.share_code, {"type": "grocery.updated", "grocery": payload}
     )
 
-    event = await asyncio.to_thread(db.get_event_raw, grocery.event_id)
     if event is not None:
         await manager.send_to_users(
             event.member_ids,
@@ -70,6 +92,7 @@ async def get_grocery_list(event_id: str, user: CurrentUser) -> GroceryList:
     grocery = await asyncio.to_thread(db.get_grocery_list, event_id)
     if grocery is None:
         raise NO_LIST
+    grocery.members = event.members
     return grocery
 
 
@@ -90,10 +113,40 @@ async def generate_grocery_list(event_id: str, user: CurrentUser) -> GroceryList
     by_id = {recipe.id: recipe for recipe in recipes}
 
     items = await asyncio.to_thread(groceries.build_items, event, plan, by_id)
+    items = await _fuse(items, event_id)
     grocery = await asyncio.to_thread(db.save_grocery_list, event_id, event.name, items)
 
     await _publish(grocery)
     return grocery
+
+
+async def _fuse(items: list, event_id: str) -> list:
+    """Let the model merge what the unit table could not.
+
+    Wrapped in the widest possible except: the list before this call is
+    already correct, so nothing here is worth failing a generation over. No
+    API key, a refused request, a mangled answer — all of them fall back to
+    the same perfectly usable list.
+    """
+    if len(items) < 2 or not ai.is_enabled():
+        return items
+
+    payload = [
+        {
+            "key": item.key,
+            "name": item.name,
+            "quantity": item.quantity,
+            "unit": item.unit,
+        }
+        for item in items
+    ]
+    try:
+        groups = await asyncio.to_thread(ai.fuse_ingredients, payload)
+    except Exception as exc:  # noqa: BLE001 — any SDK/parsing failure, same fallback
+        logger.warning("Ingredient fusion failed for %s: %s", event_id, exc)
+        return items
+
+    return groceries.apply_fusion(items, groups)
 
 
 @router.post("/events/{event_id}/grocery-list/prices", response_model=GroceryList)
@@ -144,16 +197,49 @@ async def price_grocery_list(event_id: str, user: CurrentUser) -> GroceryList:
     return updated
 
 
+@router.post("/events/{event_id}/grocery-list/assign", response_model=GroceryList)
+async def assign_grocery_items(
+    event_id: str, payload: GroceryAssign, user: CurrentUser
+) -> GroceryList:
+    """Put people on some lines: one article, one rayon, or one recipe's worth.
+
+    Which of the three it is has already been decided on screen — the list is
+    grouped both ways there — so this only ever receives keys. Members only,
+    unlike ticking: whoever holds the share link can say what is in the
+    trolley, but not who has to go and get it.
+    """
+    event = await asyncio.to_thread(db.get_event, event_id, user.id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Événement introuvable")
+
+    known = set(event.member_ids)
+    assignees = [uid for uid in dict.fromkeys(payload.assignees) if uid in known]
+
+    grocery = await asyncio.to_thread(
+        db.set_grocery_assignees, event_id, payload.keys, assignees
+    )
+    if grocery is None:
+        raise NO_LIST
+
+    await _publish(grocery)
+    return grocery
+
+
 # --------------------------------------------------------- the shared link
 
 
 @router.get("/public/grocery-lists/{share_code}", response_model=GroceryList)
 async def public_grocery_list(share_code: str) -> GroceryList:
-    """Read one list by its code. No account needed — the link is the key."""
+    """Read one list by its code. No account needed — the link is the key.
+
+    Carries the event's members, since without them the assignment on each
+    line is a set of opaque ids. That is a real (small) widening of what a
+    leaked link shows: display names and avatars, never emails.
+    """
     grocery = await asyncio.to_thread(db.get_grocery_list_by_code, share_code)
     if grocery is None:
         raise NO_LIST
-    return grocery
+    return await _hydrate(grocery)
 
 
 @router.patch(
@@ -191,6 +277,7 @@ async def public_grocery_ws(websocket: WebSocket, share_code: str) -> None:
         await websocket.close(code=1008, reason="Unknown list")
         return
 
+    await _hydrate(grocery)
     room = grocery.share_code
     await rooms.join(websocket, room)
     try:

@@ -4,6 +4,7 @@ import RecipesView from '@/views/RecipesView.vue'
 import PlaceholderView from '@/views/PlaceholderView.vue'
 import PlannerView from '@/views/PlannerView.vue'
 import EventDetailView from '@/views/EventDetailView.vue'
+import EventDayView from '@/views/EventDayView.vue'
 import GroceriesView from '@/views/GroceriesView.vue'
 import GroceryListView from '@/views/GroceryListView.vue'
 import LoginView from '@/views/LoginView.vue'
@@ -41,6 +42,17 @@ const routes = [
     component: EventDetailView,
     props: true,
     meta: { title: 'Événement', nav: 'planner', detail: true },
+  },
+  {
+    // One day of an event, with its three parts open at once. A page rather
+    // than a dialog: it is where most of the planning actually happens, it
+    // holds more than a dialog can without scrolling on a phone, and being a
+    // route means it can be linked to, reloaded, and left with Back.
+    path: '/planner/:id/:day',
+    name: 'eventDay',
+    component: EventDayView,
+    props: true,
+    meta: { title: 'Journée', nav: 'planner', detail: true },
   },
   {
     // The target of a shared invite link. A real route, so opening the link

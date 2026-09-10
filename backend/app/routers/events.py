@@ -20,6 +20,7 @@ from .. import db
 from ..auth import CurrentUser
 from ..models import (
     SLOTS,
+    DayCooks,
     Event,
     EventCreate,
     EventPlan,
@@ -50,6 +51,17 @@ async def _member_event(event_id: str, user_id: str) -> Event:
     if event is None:
         raise NOT_FOUND
     return event
+
+
+def _members_only(event: Event, user_ids: list[str]) -> list[str]:
+    """Keep the ids that are actually in this event, in the order given.
+
+    Responsibility is assigned by picking faces off the member list, so a
+    client sending anything else is either stale or wrong; either way an id
+    that means nothing here should not end up stored in the plan.
+    """
+    known = set(event.member_ids)
+    return [uid for uid in dict.fromkeys(user_ids) if uid in known]
 
 
 async def _broadcast_plan(event: Event, plan: EventPlan) -> None:
@@ -170,6 +182,33 @@ async def get_plan(event_id: str, user: CurrentUser) -> EventPlan:
     return await asyncio.to_thread(db.get_plan, event_id)
 
 
+@router.put("/events/{event_id}/plan/{day}/cooks", response_model=EventPlan)
+async def set_plan_day_cooks(
+    payload: DayCooks,
+    user: CurrentUser,
+    event_id: str,
+    day: str = DayParam,
+) -> EventPlan:
+    """Who is on duty for a whole day, cooking or not.
+
+    Declared before the `{day}/{slot}` route below, or "cooks" would be read
+    as the name of a fourth part of the day and rejected as one.
+    """
+    event = await _member_event(event_id, user.id)
+
+    day_value = str(day)
+    if not (str(event.starts_on) <= day_value <= str(event.ends_on)):
+        raise HTTPException(
+            status_code=422, detail="Ce jour est en dehors de l'événement"
+        )
+
+    plan = await asyncio.to_thread(
+        db.set_day_cooks, event_id, day_value, _members_only(event, payload.cooks)
+    )
+    await _broadcast_plan(event, plan)
+    return plan
+
+
 @router.put("/events/{event_id}/plan/{day}/{slot}", response_model=EventPlan)
 async def set_plan_slot(
     payload: MealSlot,
@@ -187,6 +226,9 @@ async def set_plan_slot(
         raise HTTPException(
             status_code=422, detail="Ce jour est en dehors de l'événement"
         )
+
+    for planned in payload.recipes:
+        planned.cooks = _members_only(event, planned.cooks)
 
     plan = await asyncio.to_thread(db.set_slot, event_id, day_value, slot, payload)
     await _broadcast_plan(event, plan)

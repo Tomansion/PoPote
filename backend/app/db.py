@@ -660,9 +660,15 @@ def _to_plan(doc: dict[str, Any]) -> EventPlan:
         day: {slot: MealSlot(**value) for slot, value in slots.items() if slot in SLOTS}
         for day, slots in (doc.get("days") or {}).items()
     }
+    day_cooks = {
+        day: [str(uid) for uid in cooks]
+        for day, cooks in (doc.get("day_cooks") or {}).items()
+        if cooks
+    }
     return EventPlan(
         event_id=doc["_key"],
         days=days,
+        day_cooks=day_cooks,
         updated_at=doc.get("updated_at", ""),
     )
 
@@ -704,13 +710,53 @@ def set_slot(event_id: str, day: str, slot: str, meal: MealSlot) -> EventPlan:
         IN {PLANS} OPTIONS {{ mergeObjects: false }}
         RETURN NEW
         """,
+        # Only what the chosen branch actually mentions: Arango rejects a bind
+        # parameter the query text does not use, and the UNSET branch has no
+        # use for the value being cleared.
         bind_vars={
             "key": event_id,
             "day": day,
             "slot": slot,
-            "value": value,
             "insert_days": {} if empty else {day: {slot: value}},
             "now": now,
+            **({} if empty else {"value": value}),
+        },
+    )
+    return _to_plan(list(cursor)[0])
+
+
+def set_day_cooks(event_id: str, day: str, cooks: list[str]) -> EventPlan:
+    """Put people on duty for a whole day, or take them all off it.
+
+    Written the same way as a slot — one UPSERT recomputing the sub-document
+    from `OLD` — so two members setting Saturday's and Sunday's rosters at the
+    same time do not overwrite each other. A day nobody is on is removed
+    rather than stored as an empty list.
+    """
+    now = utcnow_iso()
+    expression = (
+        "UNSET(OLD.day_cooks || {}, @day)"
+        if not cooks
+        else "MERGE(OLD.day_cooks || {}, { [@day]: @cooks })"
+    )
+
+    cursor = get_db().aql.execute(
+        f"""
+        UPSERT {{ _key: @key }}
+        INSERT {{ _key: @key, event_id: @key, days: {{}},
+                  day_cooks: @insert_cooks, updated_at: @now }}
+        UPDATE {{ day_cooks: {expression}, updated_at: @now }}
+        IN {PLANS} OPTIONS {{ mergeObjects: false }}
+        RETURN NEW
+        """,
+        # As in set_slot: the UNSET branch never mentions @cooks, and a bind
+        # parameter the query does not use is an error rather than a no-op.
+        bind_vars={
+            "key": event_id,
+            "day": day,
+            "insert_cooks": {day: cooks} if cooks else {},
+            "now": now,
+            **({"cooks": cooks} if cooks else {}),
         },
     )
     return _to_plan(list(cursor)[0])
@@ -830,6 +876,10 @@ def save_grocery_list(
         if not before:
             continue
         item.checked = bool(before.get("checked"))
+        # Who volunteered to fetch something survives a regeneration for the
+        # same reason the ticks do: the plan changing at home should not undo
+        # what the four people in the shop have divided up between them.
+        item.assignees = [str(uid) for uid in before.get("assignees", [])]
         if before.get("quantity") == item.quantity and before.get("unit") == item.unit:
             item.price = before.get("price")
 
@@ -880,6 +930,33 @@ def set_grocery_item_checked(
         merge=False,
     )
     return _to_grocery(collection.get(existing.event_id))
+
+
+def set_grocery_assignees(
+    event_id: str, keys: list[str], assignees: list[str]
+) -> Optional[GroceryList]:
+    """Replace the assignees on every named line at once.
+
+    One call for one line, one rayon or one recipe: the caller decides which
+    keys those are. Keys that are not on the list are ignored rather than
+    rejected — the client may be a regeneration behind.
+    """
+    collection = get_db().collection(GROCERY)
+    existing = collection.get(event_id)
+    if not existing:
+        return None
+
+    wanted = set(keys)
+    items = list(existing.get("items", []))
+    for item in items:
+        if item["key"] in wanted:
+            item["assignees"] = list(assignees)
+
+    collection.update(
+        {"_key": event_id, "items": items, "updated_at": utcnow_iso()},
+        merge=False,
+    )
+    return _to_grocery(collection.get(event_id))
 
 
 def set_grocery_prices(event_id: str, prices: dict[str, float]) -> Optional[GroceryList]:

@@ -302,10 +302,12 @@ requires an `Authorization: Bearer <token>` header.
 | `GET` | `/events/{id}/recipes` | Every member's recipes, for the planner's picker |
 | `GET` | `/events/{id}/plan` | The meal plan |
 | `PUT` | `/events/{id}/plan/{day}/{slot}` | Replace one part of one day → `plan.updated` to members |
+| `PUT` | `/events/{id}/plan/{day}/cooks` | Set who is on duty for the whole day |
 | `POST` | `/events/{id}/plan/move` | Drag & drop, one or many meals at once |
 | `GET` | `/events/{id}/grocery-list` | The event's list |
-| `POST` | `/events/{id}/grocery-list` | (Re)generate it from the plan, keeping ticks |
+| `POST` | `/events/{id}/grocery-list` | (Re)generate it from the plan: unit-aware aggregation, then an LLM pass that merges what the unit table alone could not, keeping ticks and assignments |
 | `POST` | `/events/{id}/grocery-list/prices` | Ask the model to price it |
+| `POST` | `/events/{id}/grocery-list/assign` | Put members on some lines — one article, a whole rayon, or a whole recipe's worth |
 | `GET` | `/grocery-lists` | Every list from every event you belong to |
 | `GET` | `/invites/{code}` | Invite preview, for the join screen |
 | `POST` | `/invites/{code}/join` | Join. Idempotent |
@@ -319,7 +321,7 @@ the URL is the only credential:
 
 | Method | Path | |
 |---|---|---|
-| `GET` | `/public/grocery-lists/{code}` | Read one list |
+| `GET` | `/public/grocery-lists/{code}` | Read one list, members included (names + avatars, never emails — needed to show who is assigned) |
 | `PATCH` | `/public/grocery-lists/{code}/items/{key}` | Tick or untick a line |
 | `WS` | `/public/grocery-lists/{code}/ws` | Live feed for that one list |
 
@@ -356,10 +358,11 @@ backend/
     models.py        Pydantic models + the WebSocket event envelope
     ws.py            Per-user fan-out, and per-room fan-out for shared lists
     aisles.py        Ingredient → aisle keyword table
-    groceries.py     Plan + recipes → one aggregated shopping list
+    groceries.py     Plan + recipes → one aggregated shopping list, plus the
+                     deterministic veto in front of the model's fusion pass
     images.py        Uploaded photo → full size + thumbnail (Pillow)
     storage.py       RustFS/S3 put and delete
-    ai.py            The one LLM call: pricing a shopping list
+    ai.py            The two LLM calls: pricing a list, and merging its lines
     seed.py          Demo recipes
     routers/auth.py      register / login / me / member pages
     routers/recipes.py   CRUD, photo upload + the /ws endpoint
@@ -376,12 +379,15 @@ frontend/
     stores/plan.js       Pinia store: meal plans and the drag selection
     stores/grocery.js    Pinia store: lists, ticking, the shared page's socket
     components/      Cards, detail, form dialogs, filters, UserAvatar
-                     (DiceBear), SectionHeader (shared by form and display),
+                     (DiceBear), AppLogo (doubles as the way home),
+                     SectionHeader (shared by form and display),
                      PlannerCalendar + MealSlotCell (drag & drop),
-                     MealSlotDialog, RecipePickerDialog
+                     MemberAssign (who's on it — day, dish, or grocery line),
+                     RecipePickerDialog
     utils/           prefs.js (the ten questions), aisles.js (display names),
                      gradient.js (the colour a photo-less recipe gets)
     views/           RecipesView (list + detail), PlannerView, EventDetailView,
+                     EventDayView (one day, on its own page),
                      GroceriesView, GroceryListView (works signed out),
                      ProfileView, UserProfileView, LoginView, JoinView
   assets/          icon/splash sources for the launcher icon (see Branding)
@@ -474,7 +480,22 @@ Each part of a day holds three things: whether there is *nothing to cook* (a
 decision, and distinct from an undecided slot), how many people will be there
 (`null` means "whatever the event expects", so correcting the event's number
 fixes every slot nobody has overridden), and the recipes planned for it with
-the number of portions each needs.
+the number of portions each needs and, per dish, who is cooking it.
+
+**A day is its own page** (`/planner/{id}/{day}`), not a dialog per part of the
+day — most of the actual planning happens there, it holds more than a dialog
+can without scrolling on a phone, and being a real route means it survives a
+reload and Back leaves it, including Android's inside the APK. Everything on
+it saves as it changes rather than behind one "Enregistrer": the page is
+shared by every member live, and a draft nobody else can see is the wrong
+model for a kitchen table.
+
+**Two separate kinds of responsibility.** A day carries a roster —
+`day_cooks`, `plans.day_cooks[day]` — for whoever is generally on duty
+(shopping, cooking, tidying up); each planned dish separately carries its own
+`cooks`, for whoever is actually making *that* one. Written the same way as a
+slot: one AQL UPSERT recomputing the sub-document from `OLD`, so two members
+setting Saturday's and Sunday's rosters at once never clobber each other.
 
 - **Writes are per slot, not per plan.** `db.set_slot` recomputes `days` from
   `OLD` inside one AQL statement rather than merging: a merge would silently
@@ -500,21 +521,52 @@ meals would be unreadable.
 
 ## The shopping list
 
-`groceries.py` folds an event's whole plan into one list: every planned recipe
-scaled by the portions it is planned for, aggregated by ingredient name *and*
-unit. Name-and-unit rather than name alone, because merging "200 g de tomates"
-with "3 tomates" needs a density table per ingredient to be anything but wrong,
-and two honest lines beat one invented one. Lines are keyed by a hash of name
-and unit, which is what lets a regenerated list keep the boxes already ticked.
-Aisles come from the same keyword table the recipe form uses, in the order you
-walk a supermarket.
+`groceries.py` folds an event's whole plan into one list in two passes.
+
+**The first pass is mechanical and always runs.** Every planned recipe is
+scaled by the portions it is planned for, units are converted to one base per
+family (kg → g, cl/dl/l → ml), and names are compared with case, accents and
+plural endings folded away — "Oignon" and "oignons" become one line before
+anything clever happens. Lines are still kept apart by name *and* unit:
+merging "200 g de tomates" with "3 tomates" needs a density table per
+ingredient to be anything but wrong, and two honest lines beat one invented
+one. Each line's key is a hash of its comparison form, which is what lets a
+regenerated list keep the ticks and assignments already on it. Aisles come
+from the same keyword table the recipe form uses, in the order you walk a
+supermarket.
+
+**The second pass is the model's**, and catches what the table cannot: "blancs
+de poulet" beside "poulet", "huile d'olive vierge extra" beside "huile
+d'olive". It only ever decides which lines are the same product and what to
+call the result (`ai.fuse_ingredients`); the arithmetic — including a group
+that spans two unit families, split back into one line per family — stays in
+`groceries.apply_fusion`. A deterministic veto sits in front of whatever the
+model answers: two lines differing by a word from a fixed list (`vert`,
+`rouge`, `complet`, `liquide`, `épais`, `cerise`, `coco`, `rapé`… — see
+`_DISTINGUISHING` in `groceries.py`) are never merged, even if the model says
+to. This exists because the same question asked twice does not reliably get
+the same answer — a model that correctly separates "citron" from "citron
+vert" once will sometimes merge them the next time — and an extra line is
+untidy where a missing product is a problem at the shop. Optional throughout:
+no API key, a refused call, or a mangled answer all fall back to the first
+pass's list, which is already correct.
+
+**Assignment is who is fetching what** — separate from the plan's `cooks`,
+which is who is *making* a dish. One call (`POST …/grocery-list/assign`)
+covers one article, a whole rayon, or everything one recipe needs, since the
+page already knows which keys each of those covers; it survives a
+regeneration the same way a tick does.
 
 **The list is shared with a link, and the link needs no account.** That is the
 whole design constraint: the person holding the trolley is often not the person
 who planned the meals, and asking them to sign up first would defeat the point.
-The public half of the API can read one list and tick its boxes, and nothing
-else — not the event, not its members, not a single recipe. Ticks reach everyone
-looking at the same list live, through the room-keyed socket described above.
+The public half of the API can read one list — its items *and* the event's
+members, so an assignment has a name and a face to show — and tick its boxes,
+and nothing else: not the event itself, not a single recipe, not who is
+cooking what, and never an email address. Changing *who is assigned* stays a
+members-only action; the shared page renders it read-only. Ticks and
+assignments reach everyone looking at the same list live, through the
+room-keyed socket described above.
 
 The price estimate is the app's only LLM call, and it is on demand rather than
 automatic: it is the one thing that costs money per use, the list is perfectly
@@ -562,5 +614,16 @@ for it again. Lines the model skips simply have no price rather than a zero.
   supermarket prices, not a quote, and it is not re-checked when the plan
   changes — regenerating the list clears the price of any line whose quantity
   moved.
+- **The ingredient-fusion pass is a convenience, not a guarantee.** The
+  deterministic veto (see *The shopping list*) stops it from ever merging two
+  products that differ by a known distinguishing word, but that list is not
+  exhaustive — a pair it does not know about can still be merged incorrectly,
+  and the model can also *fail* to merge two lines that plainly are the same
+  thing. Either way the list stays usable: worst case is an extra line, or two
+  that could have been one.
+- **Responsibility is a courtesy, not an enforcement.** Assigning a day, a
+  dish or a grocery line to someone does not stop anyone else from editing it,
+  and nothing reminds a member who has taken something on. It is a shared
+  to-do list, not a scheduler.
 - Node 20.19+/22.12+ is required by Vite 7. Vite 8 needs a newer Node than is
   installed on the current dev machine, which is why it is pinned.

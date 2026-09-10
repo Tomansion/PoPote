@@ -289,6 +289,12 @@ class PlannedRecipe(BaseModel):
     owner_id: str = Field(default="", max_length=60)
     name: str = Field(default="", max_length=200)
     servings: int = Field(default=1, ge=1, le=500)
+    # Who has agreed to cook this one. Member ids, filtered against the event's
+    # members on the way in — distinct from `owner_id`, which is whose recipe
+    # book it came out of and says nothing about who is at the stove.
+    cooks: list[Annotated[str, Field(max_length=60)]] = Field(
+        default_factory=list, max_length=20
+    )
 
 
 class MealSlot(BaseModel):
@@ -314,7 +320,20 @@ class EventPlan(BaseModel):
 
     event_id: str
     days: dict[str, dict[str, MealSlot]] = Field(default_factory=dict)
+    # day -> member ids on duty that day, whoever is cooking each dish. The
+    # two levels answer different questions: "who runs Saturday" and "who is
+    # making the tart". Kept beside `days` rather than inside it so that
+    # writing a slot and writing a day's roster never touch the same subtree.
+    day_cooks: dict[str, list[str]] = Field(default_factory=dict)
     updated_at: str = ""
+
+
+class DayCooks(BaseModel):
+    """Set (or clear) the members on duty for one day."""
+
+    cooks: list[Annotated[str, Field(max_length=60)]] = Field(
+        default_factory=list, max_length=20
+    )
 
 
 class PlanMoveItem(BaseModel):
@@ -358,6 +377,12 @@ class GroceryItem(BaseModel):
     checked: bool = False
     # Filled in by the LLM estimate, in euros. None until someone asks for it.
     price: Optional[float] = None
+    # Who said they would get this one. Member ids: the shared page renders
+    # them from the list's own `members`, so a signed-out shopper still sees
+    # who is fetching what without being able to change it.
+    assignees: list[Annotated[str, Field(max_length=60)]] = Field(
+        default_factory=list, max_length=20
+    )
     sources: list[GrocerySource] = Field(default_factory=list)
 
 
@@ -368,6 +393,10 @@ class GroceryList(BaseModel):
     # shopping list must not also hand them a way into the event.
     share_code: str
     items: list[GroceryItem] = Field(default_factory=list)
+    # Filled in from the event on the way out, never stored: a member who
+    # joins after the list was generated still has a face on it. Present on
+    # the public payload too — assignment is unreadable without it.
+    members: list[UserPublic] = Field(default_factory=list)
     total_price: Optional[float] = None
     priced_at: str = ""
     generated_at: str = ""
@@ -390,6 +419,23 @@ class GroceryListSummary(BaseModel):
 
 class GroceryCheck(BaseModel):
     checked: bool
+
+
+class GroceryAssign(BaseModel):
+    """Put people on some lines of the list.
+
+    Addressed by key rather than by rayon or recipe: the client already groups
+    the list both ways on screen, so "assign this whole aisle" is the same
+    call as "assign this line" with more keys in it. `assignees` replaces
+    whatever was there, and an empty list clears it.
+    """
+
+    keys: list[Annotated[str, Field(max_length=40)]] = Field(
+        min_length=1, max_length=500
+    )
+    assignees: list[Annotated[str, Field(max_length=60)]] = Field(
+        default_factory=list, max_length=20
+    )
 
 
 class WSEvent(BaseModel):

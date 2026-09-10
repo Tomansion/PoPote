@@ -20,7 +20,8 @@ defineProps({
   <div class="d-flex align-center ga-2 mb-4">
     <v-icon :icon="icon" size="20" class="text-primary" />
     <!-- flex-none: the divider next to it grows, and without this a
-         two-word title ("Quand ?") is squeezed onto two lines. -->
+    two-word title ("Quand ?") is squeezed onto two lines. -->
+    <slot name="prepend" />
     <span class="text-subtitle-1 font-weight-bold flex-none text-no-wrap">{{ title }}</span>
     <v-divider class="flex-grow-1 mx-3" />
     <slot name="action" />

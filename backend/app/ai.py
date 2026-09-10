@@ -1,14 +1,16 @@
-"""The one place the app talks to an LLM: estimating what the shopping costs.
+"""What the app asks a model: what the shopping costs, and what is the same thing twice.
 
 Recipe and image generation used to live here too. They were removed
 deliberately — a generated recipe is somebody else's cooking and a generated
 photo is of a dish nobody made, and neither is what this app is for. What is
-left is the one job with no good offline answer: putting a plausible price on
-a list of groceries.
+left are the two jobs with no good offline answer: putting a plausible price
+on a list of groceries, and deciding that "blancs de poulet" and "poulet" are
+one line of the list. Both take a whole list in one call and both hand back
+data, never prose — the model answers by calling a tool.
 
 Best-effort, like everything that leaves the process: a missing API key simply
-disables the estimate (AIDisabled) rather than failing the request, and the
-list is perfectly usable without one.
+disables the feature (AIDisabled) rather than failing the request, and both
+the list and its arithmetic are correct without one.
 """
 
 import json
@@ -85,6 +87,130 @@ _SUBMIT_PRICES_TOOL = {
         },
     },
 }
+
+# Same shape as the prices tool, and for the same reason: a list of groups is
+# something to validate, where a paragraph explaining the groups is something
+# to parse. Quantities are deliberately absent — the model decides what goes
+# together and what to call it, the caller does the arithmetic.
+_SUBMIT_GROUPS_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "submit_groups",
+        "description": (
+            "Submit the groups of lines that refer to the same ingredient."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "keys": {
+                                "type": "array",
+                                "description": (
+                                    "At least two line keys, copied verbatim."
+                                ),
+                                "items": {"type": "string"},
+                            },
+                            "name": {
+                                "type": "string",
+                                "description": (
+                                    "The name to give the merged line, in "
+                                    "French, plural, no quantity in it."
+                                ),
+                            },
+                        },
+                        "required": ["keys", "name"],
+                    },
+                }
+            },
+            "required": ["groups"],
+        },
+    },
+}
+
+_FUSE_SYSTEM = (
+    "Tu nettoies une liste de courses. Regroupe uniquement les lignes qui "
+    "désignent exactement le même produit à acheter : différences de casse, "
+    "d'accents, de singulier/pluriel, fautes de frappe, abréviations, ou une "
+    "précision qui ne change pas ce qu'on met dans le panier (« huile "
+    "d'olive vierge extra » et « huile d'olive », « gousses d'ail » et "
+    "« ail »).\n"
+    "Règle absolue : si au magasin tu prendrais deux produits différents, ne "
+    "les regroupe pas. Jamais de regroupement entre tomate et tomate cerise, "
+    "citron et citron vert, crème liquide et crème épaisse, lait et lait de "
+    "coco, farine et farine complète, sucre et sucre vanillé, oignon et "
+    "oignon rouge, chocolat noir et chocolat au lait, poulet entier et "
+    "blancs de poulet, pomme et pomme de terre.\n"
+    "Dans le doute, laisse les lignes séparées : deux lignes justes valent "
+    "mieux qu'une ligne fausse. Ne renvoie que les groupes d'au moins deux "
+    "lignes, chaque ligne dans un seul groupe, et donne à chaque groupe le "
+    "nom le plus simple et le plus courant du produit, sans quantité ni "
+    "unité : au pluriel si le produit se compte (citrons, oignons), au "
+    "singulier s'il ne se compte pas (farine, crème liquide, parmesan, "
+    "huile d'olive)."
+)
+
+
+def fuse_ingredients(items: Iterable[dict]) -> list[dict]:
+    """Find the lines that are the same ingredient. Returns [{keys, name}].
+
+    `items` are dicts with `key`, `name`, `quantity` and `unit`. The units are
+    shown to the model as context — the same product bought by weight and by
+    the piece is still one group — but it is never asked to convert anything.
+
+    A model that finds nothing to merge returns an empty list, which is a
+    perfectly good answer and the common one for a short, tidy list.
+    """
+    client = _get_client()
+    if client is None:
+        raise AIDisabled
+
+    lines = list(items)[:MAX_ITEMS]
+    # Nothing to compare a single line against.
+    if len(lines) < 2:
+        return []
+
+    listing = "\n".join(
+        f"- {line['key']} : {line.get('name', '')} "
+        f"{_format_quantity(line.get('quantity'))}{line.get('unit', '')}".rstrip()
+        for line in lines
+    )
+
+    response = client.chat.completions.create(
+        model=settings.openai_model,
+        messages=[
+            {"role": "system", "content": _FUSE_SYSTEM},
+            {"role": "user", "content": f"Liste de courses :\n{listing}"},
+        ],
+        tools=[_SUBMIT_GROUPS_TOOL],
+        tool_choice={"type": "function", "function": {"name": "submit_groups"}},
+    )
+
+    calls = response.choices[0].message.tool_calls or []
+    if not calls:
+        return []
+
+    data = json.loads(calls[0].function.arguments)
+    wanted = {line["key"] for line in lines}
+
+    groups: list[dict] = []
+    for entry in data.get("groups", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        keys = entry.get("keys")
+        if not isinstance(name, str) or not isinstance(keys, list):
+            continue
+        # Keys are echoed back by the model, so an invented one is possible;
+        # only lines we actually asked about survive.
+        kept = [key for key in keys if isinstance(key, str) and key in wanted]
+        if len(kept) >= 2 and name.strip():
+            groups.append({"keys": kept, "name": name.strip()})
+    return groups
+
 
 _SYSTEM = (
     "Tu estimes le coût de courses dans un supermarché français de taille "

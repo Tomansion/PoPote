@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import Sortable from 'sortablejs'
 
+import UserAvatar from '@/components/UserAvatar.vue'
 import { SLOT_ICONS, SLOT_LABELS, usePlanStore } from '@/stores/plan'
 import { accentColor } from '@/utils/gradient'
 
@@ -10,6 +11,8 @@ const props = defineProps({
   day: { type: String, required: true },
   slot: { type: String, required: true },
   meal: { type: Object, required: true },
+  /** The event's members, to put a face on whoever is cooking each dish. */
+  members: { type: Array, default: () => [] },
   /** Compact rendering for the desktop month grid. */
   dense: { type: Boolean, default: false },
 })
@@ -77,6 +80,13 @@ onBeforeUnmount(() => {
   sortable = null
 })
 
+/** The faces to draw on a planned meal, in the order they were assigned. */
+function cooksOf(planned) {
+  return (planned.cooks ?? [])
+    .map((id) => props.members.find((member) => member.id === id))
+    .filter(Boolean)
+}
+
 function onMealClick(event, uid) {
   // Ctrl/⌘-click builds a selection to drag as one; a plain click opens the
   // slot, which is where a meal is actually edited.
@@ -121,6 +131,13 @@ function onMealClick(event, uid) {
         @click.stop="onMealClick($event, planned.uid)"
       >
         <span class="pp-meal-name">{{ planned.name }}</span>
+        <UserAvatar
+          v-for="cook in cooksOf(planned)"
+          :key="cook.id"
+          :seed="cook.avatar_seed"
+          :size="13"
+          :title="`Aux fourneaux : ${cook.display_name}`"
+        />
         <span class="pp-meal-servings em-mono">{{ planned.servings }}</span>
       </div>
     </div>

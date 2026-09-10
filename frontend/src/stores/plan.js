@@ -112,6 +112,11 @@ export const usePlanStore = defineStore('plan', () => {
     return planFor(eventId).days?.[day]?.[slot] ?? emptySlot()
   }
 
+  /** The members on duty for a whole day — cooking, shopping, washing up. */
+  function dayCooksFor(eventId, day) {
+    return planFor(eventId).day_cooks?.[day] ?? []
+  }
+
   /**
    * Apply a plan pushed over the socket.
    *
@@ -148,6 +153,15 @@ export const usePlanStore = defineStore('plan', () => {
       plans.value[eventId] = await api.setPlanSlot(eventId, day, slot, payload)
     } catch (error) {
       notify(errorMessage(error, "Impossible d'enregistrer ce repas"))
+      throw error
+    }
+  }
+
+  async function setDayCooks(eventId, day, cooks) {
+    try {
+      plans.value[eventId] = await api.setPlanDayCooks(eventId, day, cooks)
+    } catch (error) {
+      notify(errorMessage(error, 'Impossible d’enregistrer les responsables'))
       throw error
     }
   }
@@ -189,6 +203,7 @@ export const usePlanStore = defineStore('plan', () => {
           owner_id: recipe.owner_id ?? '',
           name: recipe.name,
           servings,
+          cooks: [],
         },
       ],
     })
@@ -228,9 +243,11 @@ export const usePlanStore = defineStore('plan', () => {
     clearSelection,
     planFor,
     slotFor,
+    dayCooksFor,
     handleEvent,
     load,
     setSlot,
+    setDayCooks,
     move,
     addRecipe,
     removeRecipe,

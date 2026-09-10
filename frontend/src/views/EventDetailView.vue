@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 
 import EventFormDialog from '@/components/EventFormDialog.vue'
-import MealSlotDialog from '@/components/MealSlotDialog.vue'
 import PlannerCalendar from '@/components/PlannerCalendar.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -25,8 +24,6 @@ const eventId = computed(() => route.params.id)
 const event = computed(() => events.byId(eventId.value))
 const isOwner = computed(() => event.value?.owner_id === auth.user?.id)
 
-const editingSlot = ref(null)
-const slotDialogOpen = ref(false)
 const generating = ref(false)
 
 const dateLabel = computed(() => {
@@ -71,9 +68,19 @@ watch(
 // the meals I am about to drag".
 onMounted(() => plan.clearSelection())
 
-function openSlot({ day, slot }) {
-  editingSlot.value = { day, slot }
-  slotDialogOpen.value = true
+/**
+ * Open one day, on its own page.
+ *
+ * The part of the day that was clicked rides along in the query so the page
+ * can scroll to it — the whole day is editable there, so it is a starting
+ * point rather than a filter.
+ */
+function openDay(day, slot = null) {
+  router.push({
+    name: 'eventDay',
+    params: { id: eventId.value, day },
+    query: slot ? { slot } : {},
+  })
 }
 
 function openMember(member) {
@@ -170,18 +177,14 @@ async function openGroceryList() {
 
           <v-progress-linear v-if="plan.loading" indeterminate class="mb-3" />
 
-          <PlannerCalendar :event="event" @open-slot="openSlot" />
+          <PlannerCalendar
+            :event="event"
+            @open-slot="openDay($event.day, $event.slot)"
+            @open-day="openDay($event)"
+          />
         </template>
       </v-container>
     </div>
-
-    <MealSlotDialog
-      v-if="event && editingSlot"
-      v-model="slotDialogOpen"
-      :event="event"
-      :day="editingSlot.day"
-      :slot="editingSlot.slot"
-    />
 
     <EventFormDialog />
   </div>
