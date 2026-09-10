@@ -8,3 +8,6 @@ pyjwt>=2.9.0
 bcrypt>=4.2.0
 openai>=1.50.0
 minio>=7.2.0
+# Uploaded photos: multipart to receive them, Pillow to resize them.
+python-multipart>=0.0.9
+Pillow>=10.4.0

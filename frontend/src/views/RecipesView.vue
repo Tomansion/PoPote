@@ -1,10 +1,9 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useDisplay } from 'vuetify'
 
-import { api, ApiError } from '@/api/client'
 import RecipeCard from '@/components/RecipeCard.vue'
 import RecipeDetail from '@/components/RecipeDetail.vue'
 import RecipeFilters from '@/components/RecipeFilters.vue'
@@ -39,85 +38,60 @@ function back() {
 
 const startEdit = (recipe) => store.openEditForm(recipe)
 
-// "+ Nouvelle recette" asks first whether to start from an AI-written draft.
-// The draft is passed to the same form as `editingRecipe` would be, but
-// stays null there — so submitting still creates a new recipe, not an edit.
-const aiChoiceOpen = ref(false)
-const aiPromptOpen = ref(false)
-const aiPrompt = ref('')
-const aiBusy = ref(false)
-const aiDraft = ref(null)
-const aiError = ref('')
-// Matches the backend's RecipePrompt.prompt max_length — kept in sync by
-// hand since there's no shared schema between the two apps.
-const AI_PROMPT_MAX_LENGTH = 2000
+// ------------------------------------------------------- context menu
+//
+// One menu for the whole list rather than one per card: a category screen is
+// dozens of cards, and each would otherwise carry its own (mounted, hidden)
+// overlay. The cards report where they were pressed; this owns the menu.
 
-function startCreate() {
-  aiChoiceOpen.value = true
-}
+const menuOpen = ref(false)
+const menuTarget = ref([0, 0])
+const menuRecipe = ref(null)
 
-function startBlankCreate() {
-  aiChoiceOpen.value = false
-  aiDraft.value = null
-  store.openCreateForm()
-}
-
-function startAICreate() {
-  aiChoiceOpen.value = false
-  aiPrompt.value = ''
-  aiError.value = ''
-  aiPromptOpen.value = true
-}
-
-async function submitAIPrompt() {
-  const prompt = aiPrompt.value.trim()
-  if (!prompt || aiBusy.value) return
-
-  aiBusy.value = true
-  aiError.value = ''
-  try {
-    aiDraft.value = await api.generateRecipe(prompt)
-    aiPromptOpen.value = false
-    store.openCreateForm()
-  } catch (error) {
-    // Shown right in the dialog rather than as a toast elsewhere on screen —
-    // the prompt that caused it is still right there to fix and retry.
-    aiError.value =
-      error instanceof ApiError ? error.message : 'La génération a échoué, réessayez'
-  } finally {
-    aiBusy.value = false
-  }
-}
-
-// Closing the form for any reason (cancel, or after a successful save) drops
-// the draft, so it can't resurface on the next "+ Nouvelle recette".
-watch(formOpen, (open) => {
-  if (!open) aiDraft.value = null
-})
-
-// Best-effort and fire-and-forget: the recipe already exists either way, and
-// a `recipe.updated` event will fill in the picture once it's ready.
-function requestImage(id) {
-  api.generateRecipeImage(id).catch((error) => {
-    console.warn('Image generation skipped:', error)
+function openMenu({ recipe, x, y }) {
+  menuRecipe.value = recipe
+  menuTarget.value = [x, y]
+  // Re-anchoring an already-open menu leaves it at the old position, so close
+  // first and let the next tick reopen it where the second click landed.
+  menuOpen.value = false
+  requestAnimationFrame(() => {
+    menuOpen.value = true
   })
 }
 
-async function handleSubmit(payload) {
+async function duplicate(recipe) {
+  const copy = await store.duplicateRecipe(recipe)
+  if (copy && mdAndUp.value) open(copy)
+}
+
+/**
+ * Apply whatever the form said to do with the photo.
+ *
+ * Deliberately not allowed to fail the save: by the time this runs the recipe
+ * itself is stored, and losing the picture is worth a toast, not a dialog the
+ * user cannot get out of.
+ */
+async function applyPhoto(recipeId, photo) {
+  if (!photo) return
+  try {
+    if (photo.file) await store.uploadPhoto(recipeId, photo.file)
+    else if (photo.remove) await store.removePhoto(recipeId)
+  } catch {
+    // The store has already raised the toast.
+  }
+}
+
+async function handleSubmit(payload, photo) {
   if (editingRecipe.value) {
-    const before = editingRecipe.value
-    await store.updateRecipe(before.id, payload)
-    // The picture illustrates the name and notes specifically — anything
-    // else (ingredients, timing, type…) changing doesn't make it stale.
-    if (payload.name !== before.name || payload.notes !== before.notes) {
-      requestImage(before.id)
-    }
+    const { id } = editingRecipe.value
+    await store.updateRecipe(id, payload)
+    await applyPhoto(id, photo)
     return
   }
 
   const created = await store.createRecipe(payload)
   if (created) {
-    requestImage(created.id)
+    await applyPhoto(created.id, photo)
     // On desktop the new recipe shows up right away in its preview panel;
     // on mobile that panel doesn't exist, so there is nothing to select.
     if (mdAndUp.value) open(created)
@@ -132,10 +106,6 @@ async function confirmDelete() {
   await store.deleteRecipe(recipe.id)
   if (selectedId.value === recipe.id) back()
 }
-
-function notImplemented(message) {
-  store.toast = { message, color: 'info', at: Date.now() }
-}
 </script>
 
 <template>
@@ -149,7 +119,6 @@ function notImplemented(message) {
       @edit="startEdit"
       @delete="pendingDelete = $event"
       @toggle-favorite="store.toggleFavorite($event)"
-      @not-implemented="notImplemented"
     />
     <div v-else class="text-center em-muted pt-8">
       <p class="mb-4">Recette introuvable.</p>
@@ -177,18 +146,18 @@ function notImplemented(message) {
           variant="flat"
           rounded="pill"
           size="large"
-          @click="startCreate"
-          >
+          @click="store.openCreateForm()"
+        >
           Nouvelle recette
         </v-btn>
         <v-btn
-        v-else
-        icon="mdi-plus"
+          v-else
+          icon="mdi-plus"
           color="primary"
           variant="flat"
           rounded="circle"
           aria-label="Nouvelle recette"
-          @click="startCreate"
+          @click="store.openCreateForm()"
         />
       </div>
 
@@ -208,6 +177,7 @@ function notImplemented(message) {
                 :recipe="recipe"
                 :selected="recipe.id === selectedId"
                 @select="open"
+                @menu="openMenu"
                 @dblclick="startEdit(recipe)"
                 @toggle-favorite="store.toggleFavorite($event)"
               />
@@ -224,7 +194,7 @@ function notImplemented(message) {
       </div>
 
       <p v-if="mdAndUp" class="text-caption text-info mt-3">
-        clic = aperçu à droite · double-clic = édition
+        clic = aperçu à droite · double-clic = édition · clic droit = menu
       </p>
     </div>
 
@@ -238,7 +208,6 @@ function notImplemented(message) {
           @edit="startEdit"
           @delete="pendingDelete = $event"
           @toggle-favorite="store.toggleFavorite($event)"
-          @not-implemented="notImplemented"
         />
         <div v-else class="text-center em-muted pt-12">
           <v-icon icon="mdi-book-open-page-variant-outline" size="40" class="mb-3" />
@@ -248,76 +217,55 @@ function notImplemented(message) {
     </template>
   </div>
 
+  <!-- ------------- Right-click / long-press on a card ------------- -->
+  <v-menu v-model="menuOpen" :target="menuTarget" location="bottom start">
+    <v-list v-if="menuRecipe" density="compact" min-width="200">
+      <v-list-item
+        prepend-icon="mdi-book-open-page-variant-outline"
+        title="Ouvrir"
+        @click="open(menuRecipe)"
+      />
+      <v-list-item
+        prepend-icon="mdi-pencil-outline"
+        title="Modifier"
+        @click="startEdit(menuRecipe)"
+      />
+      <v-list-item
+        :prepend-icon="menuRecipe.favorite ? 'mdi-heart-off-outline' : 'mdi-heart-outline'"
+        :title="menuRecipe.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'"
+        @click="store.toggleFavorite(menuRecipe)"
+      />
+      <v-list-item
+        prepend-icon="mdi-content-copy"
+        title="Dupliquer"
+        @click="duplicate(menuRecipe)"
+      />
+      <v-divider class="my-1" />
+      <v-list-item
+        prepend-icon="mdi-delete-outline"
+        title="Supprimer"
+        base-color="error"
+        @click="pendingDelete = menuRecipe"
+      />
+    </v-list>
+  </v-menu>
+
   <RecipeFormDialog
     v-model="formOpen"
-    :recipe="editingRecipe || aiDraft"
+    :recipe="editingRecipe"
     :fullscreen="!mdAndUp"
     :on-submit="handleSubmit"
   />
 
-  <!-- ---------------- "+ Nouvelle recette": AI or blank? ---------------- -->
-  <v-dialog v-model="aiChoiceOpen" max-width="420">
-    <v-card flat class="pa-2">
-      <v-card-title class="text-subtitle-1">Nouvelle recette</v-card-title>
-      <v-card-text class="text-body-2">
-        Générer une recette avec l'IA à partir d'une simple description, ou
-        partir d'un formulaire vide ?
-      </v-card-text>
-      <v-card-actions class="flex-wrap">
-        <v-spacer />
-        <v-btn variant="text" size="small" @click="startBlankCreate">
-          Formulaire vide
-        </v-btn>
-        <v-btn color="primary" variant="flat" size="small" @click="startAICreate">
-          Générer avec l'IA
-        </v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
-
-  <v-dialog v-model="aiPromptOpen" max-width="480" persistent>
-    <v-card flat class="pa-2">
-      <v-card-title class="text-subtitle-1">Décrivez la recette</v-card-title>
-      <v-card-text>
-        <v-textarea
-          v-model="aiPrompt"
-          placeholder="Ex. Un curry de légumes d'automne, épicé, prêt en 30 min"
-          rows="3"
-          autofocus
-          :maxlength="AI_PROMPT_MAX_LENGTH"
-          counter
-          hide-details="auto"
-          @keydown.enter.ctrl="submitAIPrompt"
-          @update:model-value="aiError = ''"
-        />
-        <v-alert v-if="aiError" type="error" variant="tonal" density="compact" class="mt-3">
-          {{ aiError }}
-        </v-alert>
-      </v-card-text>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="text" size="small" :disabled="aiBusy" @click="aiPromptOpen = false">
-          Annuler
-        </v-btn>
-        <v-btn
-          color="primary"
-          variant="flat"
-          size="small"
-          :loading="aiBusy"
-          :disabled="!aiPrompt.trim()"
-          @click="submitAIPrompt"
-        >
-          Générer
-        </v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
-
-  <v-dialog :model-value="Boolean(pendingDelete)" max-width="420" @update:model-value="pendingDelete = null">
+  <v-dialog
+    :model-value="Boolean(pendingDelete)"
+    max-width="420"
+    @update:model-value="pendingDelete = null"
+  >
     <v-card flat class="pa-2">
       <v-card-title class="text-subtitle-1">Supprimer la recette ?</v-card-title>
       <v-card-text class="text-body-2">
-        « {{ pendingDelete?.name }} » sera supprimée pour tout le monde.
+        « {{ pendingDelete?.name }} » sera supprimée définitivement.
       </v-card-text>
       <v-card-actions>
         <v-spacer />

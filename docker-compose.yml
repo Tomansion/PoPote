@@ -62,12 +62,11 @@ services:
       # keeps it in ArangoDB, so sessions survive restarts with no config.
       JWT_SECRET: ${JWT_SECRET:-}
       JWT_TTL_DAYS: ${JWT_TTL_DAYS:-3650}
-      # AI recipe/image generation. Left empty, both features are simply
-      # disabled — this whole area is optional flavor on top of the core CRUD.
+      # Used for one thing: estimating what an event's shopping costs. Left
+      # empty, the grocery list works and simply shows no estimate.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2}
-      # Where generated recipe images are stored.
+      # Where uploaded recipe photos are stored.
       RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT:-rustfs:9000}
       RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-popote}
       RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-popote1234}

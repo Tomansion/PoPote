@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useDisplay } from 'vuetify'
 
@@ -10,7 +11,11 @@ import { useAuthStore } from '@/stores/auth'
 
 const store = useEventsStore()
 const auth = useAuthStore()
+const router = useRouter()
 const { mdAndUp } = useDisplay()
+
+/** The card is the way in to the planner; its buttons stop the propagation. */
+const openEvent = (event) => router.push({ name: 'event', params: { id: event.id } })
 const { loading, upcoming, past } = storeToRefs(store)
 
 const showPast = ref(false)
@@ -101,10 +106,13 @@ async function confirmRemove() {
         rounded="xl"
         variant="outlined"
         class="mb-3"
+        @click="openEvent(event)"
       >
         <v-card-item>
           <v-card-title class="text-subtitle-1">{{ event.name }}</v-card-title>
-          <v-card-subtitle class="text-capitalize">{{ formatRange(event) }}</v-card-subtitle>
+          <v-card-subtitle class="text-capitalize">
+            {{ formatRange(event) }} · {{ event.default_people }} pers
+          </v-card-subtitle>
         </v-card-item>
 
         <v-card-text class="pt-0">
@@ -125,16 +133,37 @@ async function confirmRemove() {
         </v-card-text>
 
         <v-card-actions class="px-4 pb-3">
-          <v-btn size="small" variant="tonal" prepend-icon="mdi-share-variant-outline" @click="openShare(event)">
+          <v-btn
+            size="small"
+            variant="tonal"
+            prepend-icon="mdi-calendar-month-outline"
+            @click.stop="openEvent(event)"
+          >
+            Planifier
+          </v-btn>
+          <v-btn
+            size="small"
+            variant="text"
+            prepend-icon="mdi-share-variant-outline"
+            @click.stop="openShare(event)"
+          >
             Inviter
           </v-btn>
           <v-spacer />
-          <v-btn v-if="isOwner(event)" size="small" variant="text" icon="mdi-pencil-outline" @click="store.openEditForm(event)" />
+          <v-btn
+            v-if="isOwner(event)"
+            size="small"
+            variant="text"
+            icon="mdi-pencil-outline"
+            aria-label="Modifier"
+            @click.stop="store.openEditForm(event)"
+          />
           <v-btn
             size="small"
             variant="text"
             :icon="isOwner(event) ? 'mdi-delete-outline' : 'mdi-exit-to-app'"
-            @click="confirming = event"
+            :aria-label="isOwner(event) ? 'Supprimer' : 'Quitter'"
+            @click.stop="confirming = event"
           />
         </v-card-actions>
       </v-card>
@@ -152,6 +181,7 @@ async function confirmRemove() {
               variant="outlined"
               class="mb-2"
               style="opacity: 0.6"
+              @click="openEvent(event)"
             >
               <v-card-item>
                 <v-card-title class="text-subtitle-2">{{ event.name }}</v-card-title>

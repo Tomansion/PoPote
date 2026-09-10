@@ -29,6 +29,10 @@ const DEFAULT_TIMEOUT_MS = 8000
 
 async function request(path, { timeoutMs = DEFAULT_TIMEOUT_MS, auth = true, ...options } = {}) {
   const token = auth ? readToken() : null
+  // A file upload must be left alone: the browser sets `multipart/form-data`
+  // *plus the boundary* itself, and a hand-written Content-Type header has no
+  // boundary in it, so the server sees a body it cannot parse.
+  const isUpload = options.body instanceof FormData
 
   let response
   try {
@@ -37,7 +41,7 @@ async function request(path, { timeoutMs = DEFAULT_TIMEOUT_MS, auth = true, ...o
       ...options,
       // Merged after the spread so a caller's headers cannot drop the token.
       headers: {
-        'Content-Type': 'application/json',
+        ...(isUpload ? {} : { 'Content-Type': 'application/json' }),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers,
       },
@@ -79,6 +83,9 @@ export const api = {
   me: () => request('/auth/me'),
   updateProfile: (payload) =>
     request('/auth/me', { method: 'PUT', body: JSON.stringify(payload) }),
+  // Someone else's page. 404 unless you share an event with them, which is
+  // the same rule their recipes follow.
+  userProfile: (id) => request(`/users/${id}`),
 
   // --- events
   listEvents: () => request('/events'),
@@ -88,6 +95,36 @@ export const api = {
     request(`/events/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteEvent: (id) => request(`/events/${id}`, { method: 'DELETE' }),
   leaveEvent: (id) => request(`/events/${id}/leave`, { method: 'POST' }),
+
+  // --- planner. Every member may write, so each call returns the whole plan
+  // and the same plan is pushed to the other members over the socket.
+  eventRecipes: (id) => request(`/events/${id}/recipes`),
+  getPlan: (id) => request(`/events/${id}/plan`),
+  setPlanSlot: (id, day, slot, payload) =>
+    request(`/events/${id}/plan/${day}/${slot}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  movePlanMeals: (id, payload) =>
+    request(`/events/${id}/plan/move`, { method: 'POST', body: JSON.stringify(payload) }),
+
+  // --- grocery lists
+  listGroceryLists: () => request('/grocery-lists'),
+  generateGroceryList: (eventId) =>
+    request(`/events/${eventId}/grocery-list`, { method: 'POST', timeoutMs: 20000 }),
+  // One LLM call over the whole list, which is well past the default deadline.
+  priceGroceryList: (eventId) =>
+    request(`/events/${eventId}/grocery-list/prices`, { method: 'POST', timeoutMs: 90000 }),
+  // The shared link: no token, and none needed — whoever holds the code reads
+  // the list and ticks its boxes.
+  publicGroceryList: (code) =>
+    request(`/public/grocery-lists/${encodeURIComponent(code)}`, { auth: false }),
+  checkGroceryItem: (code, key, checked) =>
+    request(`/public/grocery-lists/${encodeURIComponent(code)}/items/${key}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ checked }),
+      auth: false,
+    }),
 
   // --- invites
   previewInvite: (code) => request(`/invites/${encodeURIComponent(code)}`),
@@ -102,25 +139,15 @@ export const api = {
   updateRecipe: (id, recipe) =>
     request(`/recipes/${id}`, { method: 'PUT', body: JSON.stringify(recipe) }),
   deleteRecipe: (id) => request(`/recipes/${id}`, { method: 'DELETE' }),
-  // Both call out to OpenAI, which routinely takes longer than the 8s default
-  // — that default is right for a slow *network*, not for a request that is
-  // legitimately still working. Image generation (+ the upload that follows)
-  // is the slower of the two.
-  generateRecipe: (prompt) =>
-    request('/recipes/generate', {
-      method: 'POST',
-      body: JSON.stringify({ prompt }),
-      timeoutMs: 30000,
-    }),
-  generateRecipeImage: (id, prompt = '') =>
-    request(`/recipes/${id}/image`, {
-      method: 'POST',
-      body: JSON.stringify({ prompt }),
-      // Measured ~38s for a single gpt-image-1 call; this runs fully in the
-      // background (the create dialog is already closed), so there is no
-      // UX cost to a generous margin — only to cutting it off too early.
-      timeoutMs: 90000,
-    }),
+  // A photo off a phone is megabytes over whatever connection is to hand, and
+  // the server resizes it before answering — well past the 8s default, which
+  // is meant for a slow network rather than a request still doing real work.
+  uploadRecipeImage: (id, file) => {
+    const body = new FormData()
+    body.append('file', file)
+    return request(`/recipes/${id}/image`, { method: 'POST', body, timeoutMs: 60000 })
+  },
+  deleteRecipeImage: (id) => request(`/recipes/${id}/image`, { method: 'DELETE' }),
   listAisles: () => request('/aisles'),
   detectAisle: (name) => request(`/aisles/detect?name=${encodeURIComponent(name)}`),
   health: () => request('/health'),

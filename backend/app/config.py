@@ -28,16 +28,14 @@ class Settings(BaseSettings):
     # nobody should be asked to log in again on their phone every few weeks.
     jwt_ttl_days: int = 3650
 
-    # AI recipe/image generation. Left empty, both features are simply
-    # disabled — this whole area is optional flavor on top of the core CRUD.
+    # Used for one thing only: pricing an event's grocery list. Left empty,
+    # the list still works and simply shows no estimate.
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
-    openai_image_model: str = "gpt-image-2"
 
-    # Object storage for generated recipe images (RustFS, an S3-compatible
-    # store — see docker-compose.yml). Left empty, image generation is
-    # disabled even if an OpenAI key is set: there would be nowhere to put
-    # the result.
+    # Object storage for recipe photos (RustFS, an S3-compatible store — see
+    # docker-compose.yml). Left empty, photo upload reports itself
+    # unavailable: there would be nowhere to put the result.
     rustfs_endpoint: str = ""
     rustfs_access_key: str = "popote"
     rustfs_secret_key: str = "popote1234"

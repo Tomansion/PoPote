@@ -1,45 +1,56 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 
-from .. import ai, db, storage
+from .. import db, images, storage
 from ..aisles import AISLES, detect_aisle
 from ..auth import CurrentUser, user_from_ws_token
-from ..models import (
-    Recipe,
-    RecipeCreate,
-    RecipeImagePrompt,
-    RecipePrompt,
-    RecipeUpdate,
-    WSEvent,
-)
+from ..models import Recipe, RecipeCreate, RecipeUpdate, WSEvent
 from ..ws import manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# A photo straight out of a phone is a couple of megabytes; ten is generous
+# for anything anyone would deliberately upload, and small enough that a
+# rejected file has not already cost the server much to receive.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+NOT_FOUND = HTTPException(status_code=404, detail="Recipe not found")
+
 
 # python-arango is synchronous, so every database call goes through a worker
 # thread to keep the event loop (and therefore the WebSocket fan-out) free.
 #
-# Every recipe endpoint is scoped to the caller: the user id comes from the
-# token, never from the request, so there is no way to ask for someone else's
-# recipes. A recipe owned by another account reads as 404 rather than 403,
-# which keeps the API from confirming that a guessed id exists.
+# Writing a recipe is the owner's alone: the user id comes from the token,
+# never from the request. Reading one is wider — anyone sharing an event with
+# the owner may open it, which is what makes the planner's picker and member
+# pages work. Anything outside both rules reads as 404 rather than 403, so the
+# API never confirms that a guessed id exists.
 
 
 @router.get("/recipes", response_model=list[Recipe])
 async def list_recipes(user: CurrentUser) -> list[Recipe]:
+    """Your own recipe book. Other people's recipes are reached through the
+    event they are shared in, or through their member page."""
     return await asyncio.to_thread(db.list_recipes, user.id)
 
 
 @router.get("/recipes/{recipe_id}", response_model=Recipe)
 async def get_recipe(recipe_id: str, user: CurrentUser) -> Recipe:
-    recipe = await asyncio.to_thread(db.get_recipe, recipe_id, user.id)
+    recipe = await asyncio.to_thread(db.get_recipe_for_viewer, recipe_id, user.id)
     if recipe is None:
-        raise HTTPException(status_code=404, detail="Recipe not found")
+        raise NOT_FOUND
     return recipe
 
 
@@ -50,60 +61,79 @@ async def create_recipe(payload: RecipeCreate, user: CurrentUser) -> Recipe:
     return recipe
 
 
-@router.post("/recipes/generate", response_model=RecipeCreate)
-async def generate_recipe(payload: RecipePrompt, user: CurrentUser) -> RecipeCreate:
-    """Turn a free-text prompt into a draft recipe, via an OpenAI tool call.
-
-    Returns a draft only — nothing is saved here. The frontend shows it in
-    the usual create form so the user reviews (and can edit) it before it
-    becomes a real recipe through the normal POST /recipes.
-    """
-    try:
-        return await asyncio.to_thread(ai.generate_recipe, payload.prompt)
-    except ai.AIDisabled as exc:
-        raise HTTPException(
-            status_code=503, detail="Génération IA non configurée sur ce serveur"
-        ) from exc
-    except Exception as exc:  # noqa: BLE001 — any SDK/parsing failure, same fallback
-        logger.warning("Recipe generation failed: %s", exc)
-        raise HTTPException(
-            status_code=502, detail="La génération a échoué, réessayez"
-        ) from exc
-
-
 @router.post("/recipes/{recipe_id}/image", response_model=Recipe)
-async def generate_recipe_image(
-    recipe_id: str, payload: RecipeImagePrompt, user: CurrentUser
+async def upload_recipe_image(
+    recipe_id: str, user: CurrentUser, file: UploadFile = File(...)
 ) -> Recipe:
-    """Generate a picture for an existing recipe and attach it.
+    """Attach a photo the user picked, resized into a full size and a thumbnail.
 
-    Best-effort and separate from creation itself: the recipe already exists
-    with or without a picture, so a slow or failed image call never blocks
-    (or loses) the recipe it is meant to illustrate.
+    Separate from the recipe itself, and owner-only: an upload is a second
+    request that can fail, retry, or be skipped entirely without the recipe
+    ever being at risk.
     """
     recipe = await asyncio.to_thread(db.get_recipe, recipe_id, user.id)
     if recipe is None:
-        raise HTTPException(status_code=404, detail="Recipe not found")
+        raise NOT_FOUND
+
+    if not storage.is_configured():
+        raise HTTPException(
+            status_code=503, detail="Stockage d'image non configuré sur ce serveur"
+        )
+
+    # Read one byte past the limit: enough to know the file is too big without
+    # pulling all of it into memory first.
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image trop lourde (maximum {MAX_UPLOAD_BYTES // (1024 * 1024)} Mo)",
+        )
+    if not data:
+        raise HTTPException(status_code=422, detail="Fichier vide")
 
     try:
-        image_bytes = await asyncio.to_thread(
-            ai.generate_recipe_image, recipe.name, payload.prompt or recipe.notes
-        )
-    except ai.AIDisabled as exc:
+        full, thumb = await asyncio.to_thread(images.render, data)
+    except images.UnreadableImage as exc:
+        logger.info("Rejected upload for %s: %s", recipe_id, exc)
         raise HTTPException(
-            status_code=503, detail="Génération IA non configurée sur ce serveur"
-        ) from exc
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Image generation failed: %s", exc)
-        raise HTTPException(
-            status_code=502, detail="La génération d'image a échoué"
+            status_code=415, detail="Format d'image non reconnu"
         ) from exc
 
-    image_url = await asyncio.to_thread(storage.upload_image, image_bytes)
-    if image_url is None:
+    full_url = await asyncio.to_thread(
+        storage.upload_image, full, images.CONTENT_TYPE, images.SUFFIX
+    )
+    thumb_url = await asyncio.to_thread(
+        storage.upload_image, thumb, images.CONTENT_TYPE, images.SUFFIX
+    )
+    if not full_url or not thumb_url:
         raise HTTPException(status_code=503, detail="Stockage d'image non configuré")
 
-    updated = await asyncio.to_thread(db.set_recipe_image, recipe_id, user.id, image_url)
+    result = await asyncio.to_thread(
+        db.set_recipe_image, recipe_id, user.id, full_url, thumb_url
+    )
+    if result is None:
+        raise NOT_FOUND
+    updated, replaced = result
+
+    # The previous photo has nothing pointing at it any more.
+    for url in replaced:
+        await asyncio.to_thread(storage.delete_by_url, url)
+
+    await manager.send_to_user(user.id, WSEvent(type="recipe.updated", recipe=updated))
+    return updated
+
+
+@router.delete("/recipes/{recipe_id}/image", response_model=Recipe)
+async def delete_recipe_image(recipe_id: str, user: CurrentUser) -> Recipe:
+    """Remove the photo and fall back to the generated gradient."""
+    result = await asyncio.to_thread(db.set_recipe_image, recipe_id, user.id, "", "")
+    if result is None:
+        raise NOT_FOUND
+    updated, replaced = result
+
+    for url in replaced:
+        await asyncio.to_thread(storage.delete_by_url, url)
+
     await manager.send_to_user(user.id, WSEvent(type="recipe.updated", recipe=updated))
     return updated
 
@@ -114,16 +144,25 @@ async def update_recipe(
 ) -> Recipe:
     recipe = await asyncio.to_thread(db.update_recipe, recipe_id, payload, user.id)
     if recipe is None:
-        raise HTTPException(status_code=404, detail="Recipe not found")
+        raise NOT_FOUND
     await manager.send_to_user(user.id, WSEvent(type="recipe.updated", recipe=recipe))
     return recipe
 
 
 @router.delete("/recipes/{recipe_id}", status_code=204)
 async def delete_recipe(recipe_id: str, user: CurrentUser) -> None:
+    existing = await asyncio.to_thread(db.get_recipe, recipe_id, user.id)
+    if existing is None:
+        raise NOT_FOUND
+
     deleted = await asyncio.to_thread(db.delete_recipe, recipe_id, user.id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Recipe not found")
+        raise NOT_FOUND
+
+    for url in (existing.image_url, existing.image_thumb_url):
+        if url:
+            await asyncio.to_thread(storage.delete_by_url, url)
+
     await manager.send_to_user(
         user.id, WSEvent(type="recipe.deleted", recipe_id=recipe_id)
     )

@@ -38,7 +38,7 @@ class RecipeBase(BaseModel):
     favorite: bool = False
     # Capped list length and per-item length alike: an unbounded list (or an
     # unbounded string in it) is a cheap way to bloat a document — whether
-    # from a client with too much time or a hallucinating AI generation.
+    # from a client with too much time or a very enthusiastic import.
     ingredients: list[Ingredient] = Field(default_factory=list, max_length=200)
     steps: list[Annotated[str, Field(max_length=2000)]] = Field(
         default_factory=list, max_length=200
@@ -79,26 +79,16 @@ class Recipe(RecipeBase):
     owner_id: str = ""
     created_at: str
     updated_at: str
-    # Set asynchronously by POST /recipes/{id}/image, well after creation —
-    # never part of RecipeCreate/RecipeUpdate, so the edit form can't touch it.
+    # Set by POST /recipes/{id}/image, separately from the recipe itself —
+    # never part of RecipeCreate/RecipeUpdate, so a save can't wipe the photo.
+    # The thumbnail is what the cards load; the full size is for the detail
+    # page. Both are public URLs into the object store.
     image_url: str = ""
+    image_thumb_url: str = ""
 
     @property
     def total_minutes(self) -> int:
         return self.prep_minutes + self.cook_minutes
-
-
-class RecipePrompt(BaseModel):
-    """Free-text ask for POST /recipes/generate."""
-
-    prompt: str = Field(min_length=1, max_length=2000)
-
-
-class RecipeImagePrompt(BaseModel):
-    """Optional steer for POST /recipes/{id}/image; falls back to the recipe
-    itself (name + notes) when left blank."""
-
-    prompt: str = Field(default="", max_length=500)
 
 
 # ---------------------------------------------------------------- accounts
@@ -115,6 +105,54 @@ class UserPublic(BaseModel):
     display_name: str
     avatar_seed: int
     created_at: str
+
+
+class ProfilePrefs(BaseModel):
+    """The ten answers on a member's page: what they eat, and who they are.
+
+    Every one is optional and every one is free text, including the questions
+    that look closed ("Le vin et moi"). Half the list only works if people can
+    write their own answer, and one widget for ten short questions beats a
+    form that switches between selects and text fields halfway down.
+
+    An unanswered question is an empty string, and an empty string is never
+    rendered on the public page — so a half-filled profile still looks
+    deliberate rather than unfinished.
+    """
+
+    diet: str = Field(default="", max_length=200)
+    allergies: str = Field(default="", max_length=200)
+    dislikes: str = Field(default="", max_length=200)
+    alcohol: str = Field(default="", max_length=200)
+    spice: str = Field(default="", max_length=200)
+    cheese: str = Field(default="", max_length=200)
+    signature: str = Field(default="", max_length=200)
+    guilty_pleasure: str = Field(default="", max_length=200)
+    hated_veggie: str = Field(default="", max_length=200)
+    last_meal: str = Field(default="", max_length=200)
+
+    @field_validator("*")
+    @classmethod
+    def strip_answer(cls, v: str) -> str:
+        return v.strip()
+
+
+class UserProfile(UserPublic):
+    """A user plus their answers.
+
+    Returned for yourself, and for anyone you share an event with. The lean
+    `UserPublic` is what event member lists carry, so ten extra strings are
+    not repeated for every member of every event in the `hello` payload.
+    """
+
+    prefs: ProfilePrefs = Field(default_factory=ProfilePrefs)
+
+
+class PublicProfile(BaseModel):
+    """Someone else's page: who they are, and the recipes you may see."""
+
+    user: UserProfile
+    recipes: list[Recipe] = Field(default_factory=list)
 
 
 class UserRegister(BaseModel):
@@ -138,10 +176,15 @@ class UserLogin(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    """Rename yourself, or reroll the avatar. Both are optional."""
+    """Rename yourself, reroll the avatar, or answer the questions.
+
+    All three are optional and independent: `prefs`, when present, replaces
+    the whole set of answers, which is what the profile form submits.
+    """
 
     display_name: Optional[str] = Field(default=None, min_length=1, max_length=60)
     avatar_seed: Optional[int] = Field(default=None, ge=0, le=999_999_999)
+    prefs: Optional[ProfilePrefs] = None
 
     @field_validator("display_name")
     @classmethod
@@ -156,7 +199,7 @@ class ProfileUpdate(BaseModel):
 
 class AuthResponse(BaseModel):
     token: str
-    user: UserPublic
+    user: UserProfile
 
 
 # ------------------------------------------------------------------ events
@@ -167,6 +210,10 @@ class EventBase(BaseModel):
     # Plain calendar days (YYYY-MM-DD), which is what the pickers produce.
     starts_on: date
     ends_on: date
+    # How many people the organiser expects at the table. Every meal slot
+    # inherits it unless someone overrides that slot, so correcting the number
+    # here fixes the whole plan at once.
+    default_people: int = Field(default=4, ge=1, le=200)
 
     @field_validator("name")
     @classmethod
@@ -214,11 +261,143 @@ class EventPreview(BaseModel):
     already_member: bool
 
 
+# ----------------------------------------------------------------- planner
+
+# The three parts of a day, in the order they are cooked and displayed.
+SLOTS = ("matin", "midi", "soir")
+SlotName = Literal["matin", "midi", "soir"]
+
+# Days are keys in the plan document, so they are plain strings rather than
+# `date` — Arango object keys are strings, and the client sends back exactly
+# what it was given.
+DayStr = Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+
+
+class PlannedRecipe(BaseModel):
+    """One recipe planned for one part of one day.
+
+    `name` and `owner_id` are denormalised on purpose. A plan has to stay
+    readable after the recipe behind it is renamed or deleted, and after the
+    member who owns it has left the event — at which point the viewer can no
+    longer fetch it at all.
+    """
+
+    # Stable per planned meal, not per recipe: the same dish can appear twice
+    # in one slot, and drag & drop needs to tell those two apart.
+    uid: str = Field(min_length=1, max_length=40)
+    recipe_id: str = Field(min_length=1, max_length=60)
+    owner_id: str = Field(default="", max_length=60)
+    name: str = Field(default="", max_length=200)
+    servings: int = Field(default=1, ge=1, le=500)
+
+
+class MealSlot(BaseModel):
+    skipped: bool = False
+    # None means "however many the event expects", so raising the event's
+    # headcount updates every slot nobody has deliberately overridden.
+    people: Optional[int] = Field(default=None, ge=0, le=500)
+    recipes: list[PlannedRecipe] = Field(default_factory=list, max_length=30)
+
+    @property
+    def is_empty(self) -> bool:
+        """Nothing decided here — distinct from `skipped`, which is a decision."""
+        return not self.skipped and not self.recipes and self.people is None
+
+
+class EventPlan(BaseModel):
+    """Everything planned for one event, as one document.
+
+    Nested day -> slot rather than a flat list, so a single slot can be
+    patched in place by two people at once without either overwriting the
+    other's day.
+    """
+
+    event_id: str
+    days: dict[str, dict[str, MealSlot]] = Field(default_factory=dict)
+    updated_at: str = ""
+
+
+class PlanMoveItem(BaseModel):
+    day: DayStr
+    slot: SlotName
+    uid: str = Field(min_length=1, max_length=40)
+
+
+class PlanMove(BaseModel):
+    """Drag & drop: move any number of planned meals into one target slot."""
+
+    items: list[PlanMoveItem] = Field(min_length=1, max_length=50)
+    to_day: DayStr
+    to_slot: SlotName
+
+
+# ----------------------------------------------------------- grocery list
+
+
+class GrocerySource(BaseModel):
+    """Which planned meal contributed to a line, and how much of it.
+
+    Kept per item so the list can be flipped from "par rayon" to "par recette"
+    without regenerating anything.
+    """
+
+    recipe_name: str = ""
+    quantity: Optional[float] = None
+    day: str = ""
+    slot: str = ""
+
+
+class GroceryItem(BaseModel):
+    # Derived from the name and unit, so regenerating a list keeps the boxes
+    # that were already ticked for lines that survived.
+    key: str
+    name: str
+    quantity: Optional[float] = None
+    unit: str = ""
+    aisle: str = "autre"
+    checked: bool = False
+    # Filled in by the LLM estimate, in euros. None until someone asks for it.
+    price: Optional[float] = None
+    sources: list[GrocerySource] = Field(default_factory=list)
+
+
+class GroceryList(BaseModel):
+    event_id: str
+    event_name: str = ""
+    # Its own code, separate from the event's invite code: handing someone the
+    # shopping list must not also hand them a way into the event.
+    share_code: str
+    items: list[GroceryItem] = Field(default_factory=list)
+    total_price: Optional[float] = None
+    priced_at: str = ""
+    generated_at: str = ""
+    updated_at: str = ""
+
+
+class GroceryListSummary(BaseModel):
+    """One row of the "Liste de courses" index."""
+
+    event_id: str
+    event_name: str
+    share_code: str
+    item_count: int = 0
+    checked_count: int = 0
+    total_price: Optional[float] = None
+    starts_on: Optional[date] = None
+    ends_on: Optional[date] = None
+    updated_at: str = ""
+
+
+class GroceryCheck(BaseModel):
+    checked: bool
+
+
 class WSEvent(BaseModel):
     """Envelope sent to one user's connected clients.
 
-    Fan-out is per user now: a recipe event reaches only its owner, an event
-    reaches every member. Nothing is broadcast to everyone.
+    Fan-out is per user: a recipe event reaches only its owner, an event (and
+    the plan or grocery list hanging off it) reaches every member. Nothing is
+    broadcast to everyone.
     """
 
     type: Literal[
@@ -228,6 +407,8 @@ class WSEvent(BaseModel):
         "event.created",
         "event.updated",
         "event.deleted",
+        "plan.updated",
+        "grocery.updated",
         "hello",
     ]
     recipe: Optional[Recipe] = None
@@ -236,4 +417,6 @@ class WSEvent(BaseModel):
     event: Optional[Event] = None
     event_id: Optional[str] = None
     events: Optional[list[Event]] = None
+    plan: Optional[EventPlan] = None
+    grocery: Optional[GroceryList] = None
     at: str = Field(default_factory=utcnow_iso)

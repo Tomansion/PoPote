@@ -5,6 +5,8 @@ import { api, ApiError } from '@/api/client'
 import { createLiveFeed } from '@/api/ws'
 import { useAuthStore } from '@/stores/auth'
 import { useEventsStore } from '@/stores/events'
+import { useGroceryStore } from '@/stores/grocery'
+import { usePlanStore } from '@/stores/plan'
 import {
   readCachedRecipes,
   readLastSync,
@@ -143,11 +145,21 @@ export const useRecipesStore = defineStore('recipes', () => {
   }
 
   function handleEvent(event) {
-    // One socket carries both streams. Events are handed to their own store,
-    // so there is a single connection and a single `hello` to resync from.
+    // One socket carries every stream. Each is handed to the store that owns
+    // it, so there is a single connection and a single `hello` to resync from.
     if (event.type === 'hello' || event.type.startsWith('event.')) {
       useEventsStore().handleEvent(event)
       if (event.type !== 'hello') return
+    }
+
+    if (event.type === 'plan.updated') {
+      usePlanStore().handleEvent(event)
+      return
+    }
+
+    if (event.type === 'grocery.updated') {
+      useGroceryStore().handleEvent(event)
+      return
     }
 
     switch (event.type) {
@@ -252,6 +264,8 @@ export const useRecipesStore = defineStore('recipes', () => {
     editingRecipe.value = null
     resetFilters()
     useEventsStore().reset()
+    usePlanStore().reset()
+    useGroceryStore().reset()
   }
 
   function stop() {
@@ -302,9 +316,70 @@ export const useRecipesStore = defineStore('recipes', () => {
     }
   }
 
+  /**
+   * Attach a photo the user picked.
+   *
+   * Its own call, separate from saving the recipe: the recipe is already
+   * stored by the time this runs, so a failed upload costs the picture and
+   * nothing else. The server answers with the updated recipe, carrying both
+   * the full size and the thumbnail.
+   */
+  async function uploadPhoto(id, file) {
+    try {
+      const updated = await api.uploadRecipeImage(id, file)
+      upsertLocal(updated)
+      await upsertCached(updated)
+      return updated
+    } catch (error) {
+      notify(errorMessage(error, "Impossible d'envoyer la photo"))
+      throw error
+    }
+  }
+
+  async function removePhoto(id) {
+    try {
+      const updated = await api.deleteRecipeImage(id)
+      upsertLocal(updated)
+      await upsertCached(updated)
+      return updated
+    } catch (error) {
+      notify(errorMessage(error, 'Impossible de retirer la photo'))
+      throw error
+    }
+  }
+
+  async function duplicateRecipe(recipe) {
+    return createRecipe({
+      ...toPayload(recipe),
+      name: `${recipe.name} (copie)`,
+      // A copy starts unloved rather than inheriting a heart that was about
+      // the original.
+      favorite: false,
+    })
+  }
+
   async function toggleFavorite(recipe) {
-    const { id, created_at, updated_at, ...rest } = recipe
-    return updateRecipe(id, { ...rest, favorite: !recipe.favorite })
+    return updateRecipe(recipe.id, { ...toPayload(recipe), favorite: !recipe.favorite })
+  }
+
+  /**
+   * The editable half of a recipe.
+   *
+   * Server-owned fields are dropped rather than echoed back: the id and
+   * timestamps, the owner, and the photo URLs — which have their own endpoint
+   * and would be ignored here anyway.
+   */
+  function toPayload(recipe) {
+    const {
+      id,
+      owner_id,
+      created_at,
+      updated_at,
+      image_url,
+      image_thumb_url,
+      ...rest
+    } = recipe
+    return rest
   }
 
   function errorMessage(error, fallback) {
@@ -363,6 +438,9 @@ export const useRecipesStore = defineStore('recipes', () => {
     createRecipe,
     updateRecipe,
     deleteRecipe,
+    duplicateRecipe,
+    uploadPhoto,
+    removePhoto,
     toggleFavorite,
     resetFilters,
   }

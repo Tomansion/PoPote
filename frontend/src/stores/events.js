@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 import { api, ApiError } from '@/api/client'
-import { PUBLIC_WEB_ORIGIN } from '@/api/config'
+import { shareLink } from '@/api/config'
 import {
   readCachedEvents,
   removeCachedEvent,
@@ -18,7 +18,7 @@ import {
  * that resolves to their own device and goes nowhere.
  */
 export function inviteLink(code) {
-  return `${PUBLIC_WEB_ORIGIN}/join/${code}`
+  return shareLink(`/join/${code}`)
 }
 
 function startOfToday() {

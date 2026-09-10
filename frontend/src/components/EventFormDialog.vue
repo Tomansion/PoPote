@@ -2,79 +2,75 @@
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 
+import SectionHeader from '@/components/SectionHeader.vue'
 import { useEventsStore } from '@/stores/events'
+import { fromISODate, toISODate } from '@/stores/plan'
 
 const store = useEventsStore()
 const { formOpen, editingEvent } = storeToRefs(store)
 
 const name = ref('')
-const startsOn = ref(null)
-const endsOn = ref(null)
+/**
+ * The picker's model: `[]`, `[day]`, or `[start, end]`.
+ *
+ * Vuetify's `multiple="range"` fills the days in between visually and hands
+ * back only the two ends, which is exactly the shape the API wants. A single
+ * click is a one-day event rather than an unfinished range — asking for a
+ * second click on the same square to confirm "just Saturday" would be worse.
+ */
+const range = ref([])
+const people = ref(4)
 const saving = ref(false)
-/** Which calendar is open, if any: 'start' | 'end' | null. */
-const picking = ref(null)
 
 const isEdit = computed(() => Boolean(editingEvent.value))
 
-/** Vuetify's date picker works in Date objects; the API speaks YYYY-MM-DD. */
-function toISODate(value) {
-  if (!value) return null
-  const d = value instanceof Date ? value : new Date(value)
-  // Built from local parts, not toISOString(), which would shift the day back
-  // for anyone east of UTC — an event on the 1st saved as the 31st.
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${month}-${day}`
-}
+// Vuetify's date picker works in Date objects; the API speaks YYYY-MM-DD.
+// Both helpers live with the planner, which reads the same dates back — and
+// both build from local parts rather than toISOString(), which would shift the
+// day back for anyone east of UTC (an event on the 1st saved as the 31st).
 
-function fromISODate(value) {
-  if (!value) return null
-  const [y, m, d] = value.split('-').map(Number)
-  return new Date(y, m - 1, d)
-}
+const startsOn = computed(() => range.value[0] ?? null)
+const endsOn = computed(() => range.value[range.value.length - 1] ?? null)
 
 const formatted = (value) =>
   value
-    ? value.toLocaleDateString('fr-FR', {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      })
+    ? value.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'long' })
     : ''
 
-const startLabel = computed(() => formatted(startsOn.value))
-const endLabel = computed(() => formatted(endsOn.value))
+const dayCount = computed(() => {
+  if (!startsOn.value || !endsOn.value) return 0
+  const ms = endsOn.value.getTime() - startsOn.value.getTime()
+  return Math.round(ms / 86400000) + 1
+})
 
-const rangeInvalid = computed(
-  () => Boolean(startsOn.value && endsOn.value && endsOn.value < startsOn.value),
-)
+const rangeLabel = computed(() => {
+  if (!startsOn.value) return 'Choisissez le premier jour'
+  if (!range.value[1]) return `${formatted(startsOn.value)} — choisissez le dernier jour`
+  const days = dayCount.value
+  return `Du ${formatted(startsOn.value)} au ${formatted(endsOn.value)} · ${days} jour${days > 1 ? 's' : ''}`
+})
 
-const valid = computed(
-  () => name.value.trim().length > 0 && startsOn.value && endsOn.value && !rangeInvalid.value,
-)
+const valid = computed(() => name.value.trim().length > 0 && Boolean(startsOn.value))
 
 // Reset the fields each time the dialog opens, from the event being edited or
 // from sensible defaults for a new one.
 watch(formOpen, (open) => {
   if (!open) return
-  picking.value = null
   if (editingEvent.value) {
     name.value = editingEvent.value.name
-    startsOn.value = fromISODate(editingEvent.value.starts_on)
-    endsOn.value = fromISODate(editingEvent.value.ends_on)
+    range.value = [
+      fromISODate(editingEvent.value.starts_on),
+      fromISODate(editingEvent.value.ends_on),
+    ]
+    people.value = editingEvent.value.default_people ?? 4
   } else {
-    const today = new Date()
     name.value = ''
-    startsOn.value = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-    endsOn.value = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    // Deliberately empty. Pre-selecting today would leave a half-open range,
+    // so the user's first click — the day they mean to start on — would be
+    // read as the *end* of a range beginning today.
+    range.value = []
+    people.value = 4
   }
-})
-
-// Picking a start after the current end drags the end along, which is almost
-// always what was meant and avoids a validation error the user has to fix.
-watch(startsOn, (value) => {
-  if (value && endsOn.value && endsOn.value < value) endsOn.value = value
 })
 
 async function save() {
@@ -83,7 +79,9 @@ async function save() {
   const payload = {
     name: name.value.trim(),
     starts_on: toISODate(startsOn.value),
-    ends_on: toISODate(endsOn.value),
+    // A one-day event: both ends are the same day.
+    ends_on: toISODate(endsOn.value ?? startsOn.value),
+    default_people: Number(people.value) || 1,
   }
   try {
     if (isEdit.value) await store.updateEvent(editingEvent.value.id, payload)
@@ -111,59 +109,45 @@ async function save() {
           placeholder="Noël chez mamie, Week-end à la mer…"
           prepend-inner-icon="mdi-tag-outline"
           autofocus
-          class="mb-2"
+          class="mb-4"
         />
 
-        <v-list class="pa-0 bg-transparent">
-          <v-list-item
-            class="px-0"
-            prepend-icon="mdi-calendar-start-outline"
-            :title="startLabel || 'Choisir une date'"
-            subtitle="Début"
-            rounded="lg"
-            @click="picking = picking === 'start' ? null : 'start'"
-          />
-          <v-expand-transition>
-            <v-date-picker
-              v-if="picking === 'start'"
-              v-model="startsOn"
-              show-adjacent-months
-              hide-header
-              width="100%"
-              @update:model-value="picking = null"
-            />
-          </v-expand-transition>
+        <SectionHeader icon="mdi-calendar-range" title="Quand ?" />
+        <p class="text-body-2 em-muted mb-2">
+          Les repas se planifieront sur ces jours-là. Cliquez le premier puis le
+          dernier jour.
+        </p>
 
-          <v-list-item
-            class="px-0"
-            prepend-icon="mdi-calendar-end-outline"
-            :title="endLabel || 'Choisir une date'"
-            subtitle="Fin"
-            rounded="lg"
-            @click="picking = picking === 'end' ? null : 'end'"
-          />
-          <v-expand-transition>
-            <v-date-picker
-              v-if="picking === 'end'"
-              v-model="endsOn"
-              :min="startsOn"
-              show-adjacent-months
-              hide-header
-              width="100%"
-              @update:model-value="picking = null"
-            />
-          </v-expand-transition>
-        </v-list>
+        <!-- One calendar for both ends rather than two collapsible pickers:
+             the days in between are what the event actually is, and they were
+             invisible when the start and the end were chosen separately. -->
+        <v-date-picker
+          v-model="range"
+          multiple="range"
+          show-adjacent-months
+          hide-header
+          width="100%"
+          class="em-outline mb-2"
+          rounded="lg"
+        />
 
-        <v-alert
-          v-if="rangeInvalid"
-          type="warning"
-          variant="tonal"
-          density="compact"
-          class="mt-2"
-        >
-          La fin doit être après le début.
-        </v-alert>
+        <p class="text-body-2 text-center mb-6" :class="range[1] ? '' : 'em-muted'">
+          {{ rangeLabel }}
+        </p>
+
+        <SectionHeader icon="mdi-account-group-outline" title="Combien ?" />
+        <p class="text-body-2 em-muted mb-3">
+          Le nombre de personnes attendues à table chaque jour. Il sert de valeur
+          par défaut pour chaque repas, et reste modifiable repas par repas.
+        </p>
+        <v-text-field
+          v-model.number="people"
+          label="Personnes"
+          type="number"
+          min="1"
+          max="200"
+          prepend-inner-icon="mdi-silverware-fork-knife"
+        />
       </v-card-text>
 
       <v-card-actions class="px-5 pb-5">

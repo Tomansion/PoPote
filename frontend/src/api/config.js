@@ -10,6 +10,13 @@ export const API_BASE = RAW_BASE.replace(/\/+$/, '')
 
 export const IS_ABSOLUTE_BASE = /^https?:\/\//i.test(API_BASE)
 
+/** Absolute ws:// or wss:// root, matching however API_BASE was resolved. */
+function websocketBase() {
+  if (IS_ABSOLUTE_BASE) return API_BASE.replace(/^http/i, 'ws')
+  const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${scheme}//${window.location.host}${API_BASE}`
+}
+
 /**
  * Absolute ws:// or wss:// URL for the live feed.
  *
@@ -18,11 +25,19 @@ export const IS_ABSOLUTE_BASE = /^https?:\/\//i.test(API_BASE)
  * calls send as a bearer header; only the transport differs.
  */
 export function websocketUrl(token) {
-  const base = IS_ABSOLUTE_BASE
-    ? `${API_BASE.replace(/^http/i, 'ws')}/ws`
-    : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}${API_BASE}/ws`
-
+  const base = `${websocketBase()}/ws`
   return token ? `${base}?token=${encodeURIComponent(token)}` : base
+}
+
+/**
+ * Live feed for one shared grocery list.
+ *
+ * No token at all: the share code in the path is the only credential, because
+ * the person ticking boxes at the shop may have no account. The server keys
+ * its fan-out by that code rather than by a user id.
+ */
+export function groceryWebsocketUrl(shareCode) {
+  return `${websocketBase()}/public/grocery-lists/${encodeURIComponent(shareCode)}/ws`
 }
 
 /**
@@ -38,3 +53,8 @@ const RAW_WEB_URL = import.meta.env.VITE_PUBLIC_WEB_URL || ''
 export const PUBLIC_WEB_ORIGIN = RAW_WEB_URL
   ? RAW_WEB_URL.replace(/\/+$/, '')
   : window.location.origin
+
+/** Build a link meant to be sent to someone else, e.g. `/join/ABC12345`. */
+export function shareLink(path) {
+  return `${PUBLIC_WEB_ORIGIN}${path}`
+}

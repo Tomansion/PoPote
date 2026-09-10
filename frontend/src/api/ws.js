@@ -6,14 +6,29 @@ const MAX_RETRY_MS = 20000
 const PING_INTERVAL_MS = 25000
 
 /**
- * Self-reconnecting WebSocket to the live recipe feed.
+ * Self-reconnecting WebSocket to a live feed.
  *
  * Reconnection matters more than usual here: an APK is backgrounded and
  * resumed constantly, and each resume drops the socket. On every (re)connect
- * the server replays the full list in a `hello` event, so a reconnect doubles
- * as a resync — the client never has to reason about what it missed.
+ * the server replays the full state — `hello` for the signed-in feed, the
+ * whole list for a shared grocery list — so a reconnect doubles as a resync
+ * and the client never has to reason about what it missed.
+ *
+ * `resolveUrl` defaults to the signed-in feed. The shared grocery list passes
+ * its own, because that page has no session at all: its URL carries a share
+ * code instead of a token.
  */
-export function createLiveFeed({ onEvent, onStatus, onUnauthorized }) {
+export function createLiveFeed({
+  onEvent,
+  onStatus,
+  onUnauthorized,
+  resolveUrl = () => {
+    // Read at connect time, not once at setup: after logging out and back
+    // in, a reconnect has to carry the new token.
+    const token = readToken()
+    return token ? websocketUrl(token) : null
+  },
+}) {
   let socket = null
   let retryDelay = INITIAL_RETRY_MS
   let retryTimer = null
@@ -53,16 +68,14 @@ export function createLiveFeed({ onEvent, onStatus, onUnauthorized }) {
     if (closedByUs || socket) return
     setStatus('connecting')
 
-    // Read at connect time, not once at setup: after logging out and back
-    // in, a reconnect has to carry the new token.
-    const token = readToken()
-    if (!token) {
+    const url = resolveUrl()
+    if (!url) {
       setStatus('offline')
       return
     }
 
     try {
-      socket = new WebSocket(websocketUrl(token))
+      socket = new WebSocket(url)
     } catch {
       setStatus('offline')
       scheduleReconnect()

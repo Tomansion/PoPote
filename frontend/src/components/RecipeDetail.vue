@@ -1,12 +1,19 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 
+import SectionHeader from '@/components/SectionHeader.vue'
+import { placeholderGradient } from '@/utils/gradient'
+
 const props = defineProps({
   recipe: { type: Object, required: true },
   showBack: { type: Boolean, default: false },
+  /** Someone else's recipe, seen from their member page: no editing. */
+  readonly: { type: Boolean, default: false },
+  /** Their display name, shown under the title when there is one. */
+  ownerName: { type: String, default: '' },
 })
 
-const emit = defineEmits(['back', 'edit', 'delete', 'toggle-favorite', 'not-implemented'])
+const emit = defineEmits(['back', 'edit', 'delete', 'toggle-favorite'])
 
 // Local override of the serving count: scales quantities for display only,
 // it is never written back to the recipe.
@@ -22,6 +29,8 @@ watch(
 const scale = computed(() => servings.value / (props.recipe.servings || 1))
 
 const isScaled = computed(() => servings.value !== props.recipe.servings)
+
+const gradient = computed(() => placeholderGradient(props.recipe.id))
 
 function formatQuantity(quantity) {
   if (quantity === null || quantity === undefined || quantity === '') return ''
@@ -56,45 +65,45 @@ const chips = computed(() => {
 
       <v-spacer />
 
-      <v-btn
-        variant="text"
-        size="small"
-        :prepend-icon="recipe.favorite ? 'mdi-heart' : 'mdi-heart-outline'"
-        :color="recipe.favorite ? 'error' : undefined"
-        @click="emit('toggle-favorite', recipe)"
-      >
-        favori
-      </v-btn>
+      <template v-if="!readonly">
+        <v-btn
+          variant="text"
+          size="small"
+          :prepend-icon="recipe.favorite ? 'mdi-heart' : 'mdi-heart-outline'"
+          :color="recipe.favorite ? 'error' : undefined"
+          @click="emit('toggle-favorite', recipe)"
+        >
+          favori
+        </v-btn>
 
-      <v-menu>
-        <template #activator="{ props: menuProps }">
-          <v-btn
-            v-bind="menuProps"
-            icon="mdi-dots-horizontal"
-            variant="text"
-            size="small"
-            aria-label="Plus d’actions"
-          />
-        </template>
-        <v-list density="compact">
-          <v-list-item
-            prepend-icon="mdi-pencil-outline"
-            title="Modifier"
-            @click="emit('edit', recipe)"
-          />
-          <v-list-item
-            prepend-icon="mdi-delete-outline"
-            title="Supprimer"
-            base-color="error"
-            @click="emit('delete', recipe)"
-          />
-        </v-list>
-      </v-menu>
+        <v-menu>
+          <template #activator="{ props: menuProps }">
+            <v-btn
+              v-bind="menuProps"
+              icon="mdi-dots-horizontal"
+              variant="text"
+              size="small"
+              aria-label="Plus d’actions"
+            />
+          </template>
+          <v-list density="compact">
+            <v-list-item
+              prepend-icon="mdi-pencil-outline"
+              title="Modifier"
+              @click="emit('edit', recipe)"
+            />
+            <v-list-item
+              prepend-icon="mdi-delete-outline"
+              title="Supprimer"
+              base-color="error"
+              @click="emit('delete', recipe)"
+            />
+          </v-list>
+        </v-menu>
+      </template>
     </div>
 
     <div class="em-scroll flex-grow-1 pe-1">
-      <!-- Only shown once the AI has generated a real photo — the small
-           placeholder blur used on cards would look like a mistake this big. -->
       <v-img
         v-if="recipe.image_url"
         :src="recipe.image_url"
@@ -103,51 +112,62 @@ const chips = computed(() => {
         rounded="lg"
         class="em-outline mb-4"
       />
+      <!-- No photo: the same derived tint the card shows, so the recipe keeps
+           a consistent identity between the list and this page. -->
+      <div
+        v-else
+        class="em-outline mb-4 pp-detail-placeholder"
+        :style="{ background: gradient }"
+      />
 
-      <h2 class="text-h6 font-weight-medium mb-3">{{ recipe.name }}</h2>
+      <h2 class="text-h6 font-weight-medium mb-1">{{ recipe.name }}</h2>
+      <p v-if="ownerName" class="text-caption em-muted mb-2">Recette de {{ ownerName }}</p>
 
-      <div class="d-flex flex-wrap ga-2 mb-5">
+      <div class="d-flex flex-wrap ga-2 mb-5 mt-3">
         <v-chip v-for="chip in chips" :key="chip" size="small" variant="outlined">
           {{ chip }}
         </v-chip>
       </div>
 
-      <!-- Ingredients, with the adjustable serving count from the mockup -->
-      <div class="d-flex align-center ga-2 mb-2">
-        <span class="text-subtitle-2 font-weight-medium">Ingrédients</span>
-        <span class="text-caption em-muted">(pour</span>
-        <v-btn
-          icon="mdi-minus"
-          size="x-small"
-          variant="text"
-          :disabled="servings <= 1"
-          aria-label="Moins de portions"
-          @click="servings = Math.max(1, servings - 1)"
-        />
-        <span class="text-caption em-mono" style="min-width: 1.5rem; text-align: center">
-          {{ servings }}
-        </span>
-        <v-btn
-          icon="mdi-plus"
-          size="x-small"
-          variant="text"
-          :disabled="servings >= 50"
-          aria-label="Plus de portions"
-          @click="servings = Math.min(50, servings + 1)"
-        />
-        <span class="text-caption em-muted">— ajustable)</span>
-        <v-btn
-          v-if="isScaled"
-          size="x-small"
-          variant="text"
-          class="em-muted"
-          @click="servings = recipe.servings"
-        >
-          réinitialiser
-        </v-btn>
-      </div>
+      <!-- The same section headings as the edit form, from one component:
+           the two screens describe the same recipe and used to introduce its
+           parts in visibly different ways. -->
+      <SectionHeader icon="mdi-food-variant" title="Ingrédients">
+        <template #action>
+          <div class="d-flex align-center ga-1 flex-shrink-0">
+            <span class="text-caption em-muted">pour</span>
+            <v-btn
+              icon="mdi-minus"
+              size="x-small"
+              variant="text"
+              :disabled="servings <= 1"
+              aria-label="Moins de portions"
+              @click="servings = Math.max(1, servings - 1)"
+            />
+            <span class="text-caption em-mono" style="min-width: 1.5rem; text-align: center">
+              {{ servings }}
+            </span>
+            <v-btn
+              icon="mdi-plus"
+              size="x-small"
+              variant="text"
+              :disabled="servings >= 50"
+              aria-label="Plus de portions"
+              @click="servings = Math.min(50, servings + 1)"
+            />
+            <v-btn
+              v-if="isScaled"
+              icon="mdi-restore"
+              size="x-small"
+              variant="text"
+              aria-label="Revenir aux portions de la recette"
+              @click="servings = recipe.servings"
+            />
+          </div>
+        </template>
+      </SectionHeader>
 
-      <div v-if="recipe.ingredients?.length" class="mb-5">
+      <div v-if="recipe.ingredients?.length" class="mb-6">
         <div
           v-for="(ingredient, index) in recipe.ingredients"
           :key="`${ingredient.name}-${index}`"
@@ -166,51 +186,38 @@ const chips = computed(() => {
           </span>
         </div>
       </div>
-      <p v-else class="text-body-2 em-muted mb-5">Aucun ingrédient renseigné.</p>
+      <p v-else class="text-body-2 em-muted mb-6">Aucun ingrédient renseigné.</p>
 
-      <div v-if="recipe.steps?.length" class="mb-5">
-        <div class="text-subtitle-2 font-weight-medium mb-2">Étapes</div>
-        <div
-          v-for="(step, index) in recipe.steps"
-          :key="index"
-          class="d-flex ga-3 text-body-2 mb-2"
-        >
-          <span class="em-muted em-mono">{{ index + 1 }}</span>
-          <span>{{ step }}</span>
+      <template v-if="recipe.steps?.length">
+        <SectionHeader icon="mdi-format-list-numbered" title="Étapes" />
+        <div class="mb-6">
+          <div
+            v-for="(step, index) in recipe.steps"
+            :key="index"
+            class="d-flex ga-3 text-body-2 mb-2"
+          >
+            <span class="em-muted em-mono">{{ index + 1 }}</span>
+            <span>{{ step }}</span>
+          </div>
         </div>
-      </div>
+      </template>
 
-      <div class="mb-4">
-        <div class="text-subtitle-2 font-weight-medium mb-2">Notes</div>
-        <v-sheet
-          class="em-outline pa-3 text-body-2"
-          rounded="lg"
-          :class="recipe.notes ? '' : 'em-muted'"
-          min-height="72"
-        >
-          {{ recipe.notes || 'Aucune note.' }}
-        </v-sheet>
-      </div>
-    </div>
-
-    <!-- Planner / grocery list are out of scope for the POC.
-         No `block` here: it forces width 100% on each button, so side by side
-         they overflow and the second one is pushed off screen. -->
-    <div class="d-flex ga-3 pt-3">
-      <v-btn
-        class="flex-grow-1"
-        style="min-width: 0"
-        @click="emit('not-implemented', 'La liste de courses arrive bientôt')"
+      <SectionHeader icon="mdi-note-text" title="Notes" />
+      <v-sheet
+        class="em-outline pa-3 text-body-2 mb-4"
+        rounded="lg"
+        :class="recipe.notes ? '' : 'em-muted'"
+        min-height="72"
       >
-        + Liste de courses
-      </v-btn>
-      <v-btn
-        class="flex-grow-1"
-        style="min-width: 0; border-style: dashed"
-        @click="emit('not-implemented', 'Le planificateur arrive bientôt')"
-      >
-        + Planning
-      </v-btn>
+        {{ recipe.notes || 'Aucune note.' }}
+      </v-sheet>
     </div>
   </div>
 </template>
+
+<style scoped>
+.pp-detail-placeholder {
+  height: 200px;
+  border-radius: 8px;
+}
+</style>

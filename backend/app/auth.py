@@ -22,7 +22,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from . import db
 from .config import settings
-from .models import UserPublic
+from .models import UserProfile
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ UNAUTHORIZED = HTTPException(
 
 async def current_user(
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(_bearer)],
-) -> UserPublic:
+) -> UserProfile:
     if credentials is None or not credentials.credentials:
         raise UNAUTHORIZED
 
@@ -133,10 +133,10 @@ async def current_user(
     return user
 
 
-CurrentUser = Annotated[UserPublic, Depends(current_user)]
+CurrentUser = Annotated[UserProfile, Depends(current_user)]
 
 
-def user_from_ws_token(token: Optional[str]) -> Optional[UserPublic]:
+def user_from_ws_token(token: Optional[str]) -> Optional[UserProfile]:
     """Authenticate a WebSocket handshake.
 
     Browsers cannot set headers on a WebSocket handshake, so the token arrives

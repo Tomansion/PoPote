@@ -100,11 +100,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  /** Save a rerolled avatar seed, or a new display name. */
-  async function updateProfile({ displayName, avatarSeed }) {
+  /** Save a rerolled avatar seed, a new display name, or the ten answers. */
+  async function updateProfile({ displayName, avatarSeed, prefs }) {
     const payload = {}
     if (displayName !== undefined) payload.display_name = displayName
     if (avatarSeed !== undefined) payload.avatar_seed = avatarSeed
+    // Sent whole rather than field by field: that is what lets an answer be
+    // cleared, which a merge could not express.
+    if (prefs !== undefined) payload.prefs = prefs
 
     const previous = user.value
     // Applied locally first: rerolling an avatar should feel instant.
@@ -112,6 +115,7 @@ export const useAuthStore = defineStore('auth', () => {
       ...previous,
       ...(displayName !== undefined ? { display_name: displayName } : {}),
       ...(avatarSeed !== undefined ? { avatar_seed: avatarSeed } : {}),
+      ...(prefs !== undefined ? { prefs } : {}),
     }
     try {
       const fresh = await api.updateProfile(payload)

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import db
 from .auth import init_secret
 from .config import settings
-from .routers import auth, events, recipes
+from .routers import auth, events, groceries, recipes
 from .ws import manager
 
 logging.basicConfig(
@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="PoPote API",
-    version="0.1.0",
+    version="0.5.0",
     lifespan=lifespan,
     # Served behind nginx under /api in docker-compose and in production.
     root_path="",
@@ -46,6 +46,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(recipes.router, prefix="/api", tags=["recipes"])
 app.include_router(events.router, prefix="/api", tags=["events"])
+app.include_router(groceries.router, prefix="/api", tags=["groceries"])
 
 
 @app.get("/api/health")
