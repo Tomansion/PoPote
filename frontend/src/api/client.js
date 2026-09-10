@@ -143,6 +143,15 @@ export const api = {
       body: JSON.stringify({ checked }),
       auth: false,
     }),
+  // The "check this whole rayon/recipe" box: one call for every line under
+  // it, so the server can flip them all in a single read-modify-write rather
+  // than racing N individual PATCHes against each other.
+  checkGroceryItems: (code, keys, checked) =>
+    request(`/public/grocery-lists/${encodeURIComponent(code)}/items`, {
+      method: 'PATCH',
+      body: JSON.stringify({ keys, checked }),
+      auth: false,
+    }),
 
   // --- invites
   previewInvite: (code) => request(`/invites/${encodeURIComponent(code)}`),

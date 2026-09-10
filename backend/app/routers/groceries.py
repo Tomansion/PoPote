@@ -23,6 +23,7 @@ from ..auth import CurrentUser
 from ..models import (
     GroceryAssign,
     GroceryCheck,
+    GroceryCheckMany,
     GroceryList,
     GroceryListSummary,
     WSEvent,
@@ -256,6 +257,26 @@ async def check_grocery_item(
     """
     grocery = await asyncio.to_thread(
         db.set_grocery_item_checked, share_code, item_key, payload.checked
+    )
+    if grocery is None:
+        raise NO_LIST
+
+    await _publish(grocery)
+    return grocery
+
+
+@router.patch("/public/grocery-lists/{share_code}/items", response_model=GroceryList)
+async def check_grocery_items(share_code: str, payload: GroceryCheckMany) -> GroceryList:
+    """Tick or untick a whole heading's worth in one shot.
+
+    A different route from the one above (no `{item_key}` segment), not an
+    overload of it: the "check this whole rayon" box has to flip several
+    lines atomically, and a loop calling the single-item endpoint once per
+    line would race — see `db.set_grocery_items_checked`. Same no-account
+    rule as everywhere else on this page.
+    """
+    grocery = await asyncio.to_thread(
+        db.set_grocery_items_checked, share_code, payload.keys, payload.checked
     )
     if grocery is None:
         raise NO_LIST

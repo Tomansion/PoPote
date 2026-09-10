@@ -115,20 +115,28 @@ onBeforeUnmount(() => grocery.stopShared());
 function toggle(item) {
   grocery.toggleItem(code.value, item.key, !item.checked);
 }
-function toggleGroup(group) {
-  // If all checked, uncheck, else, check all
-  if (group.items.some((item) => !item.checked))
-    group.items.forEach((item) =>
-      grocery.toggleItem(code.value, item.key, false),
-    );
-  else
-    group.items.forEach((item) =>
-      grocery.toggleItem(code.value, item.key, true),
-    );
-}
 
 function areAllChecked(group) {
-  return !group.items.some((item) => !item.checked);
+  return group.items.length > 0 && group.items.every((item) => item.checked);
+}
+
+/** Some but not all ticked — the checkbox's dash state, not its box. */
+function someChecked(group) {
+  return group.items.some((item) => item.checked) && !areAllChecked(group);
+}
+
+/**
+ * Check (or uncheck) a whole heading's worth in one request.
+ *
+ * If the whole group is already ticked, one more press clears it;
+ * otherwise it fills in whatever is still missing — the same "finish it off"
+ * behaviour as a browser's own select-all box. `recipe` mode can list the
+ * same ingredient twice under one heading (used in two different meals of
+ * that recipe), so the keys are deduplicated before the request goes out.
+ */
+function toggleGroup(group) {
+  const keys = [...new Set(group.items.map((item) => item.key))];
+  grocery.toggleItems(code.value, keys, !areAllChecked(group));
 }
 
 async function estimate() {
@@ -312,6 +320,7 @@ async function share() {
                      for a whole rayon, or for everything a recipe needs. -->
                 <v-checkbox-btn
                   :model-value="areAllChecked(group)"
+                  :indeterminate="someChecked(group)"
                   density="compact"
                   color="success"
                   @click.stop="toggleGroup(group)"

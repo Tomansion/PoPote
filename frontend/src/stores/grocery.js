@@ -134,6 +134,33 @@ export const useGroceryStore = defineStore('grocery', () => {
   }
 
   /**
+   * Tick or untick a whole group of lines at once.
+   *
+   * One request for the group, not one per line: the server does a single
+   * read-modify-write, which is what keeps N lines ticked at once from racing
+   * each other the way N separate `toggleItem` calls would. Applied
+   * optimistically like the single-item version, for the same reason.
+   */
+  async function toggleItems(shareCode, keys, checked) {
+    const wanted = new Set(keys)
+    const before = shared.value
+    if (before?.share_code === shareCode) {
+      shared.value = {
+        ...before,
+        items: before.items.map((item) =>
+          wanted.has(item.key) ? { ...item, checked } : item,
+        ),
+      }
+    }
+    try {
+      remember(await api.checkGroceryItems(shareCode, [...wanted], checked))
+    } catch (error) {
+      if (before?.share_code === shareCode) shared.value = before
+      notify(errorMessage(error, 'Impossible de cocher ces articles'))
+    }
+  }
+
+  /**
    * Put people on some lines of a list.
    *
    * One call whether it is one article, a whole rayon or everything a recipe
@@ -213,6 +240,7 @@ export const useGroceryStore = defineStore('grocery', () => {
     generate,
     estimatePrices,
     toggleItem,
+    toggleItems,
     assign,
     openShared,
     stopShared,

@@ -932,6 +932,38 @@ def set_grocery_item_checked(
     return _to_grocery(collection.get(existing.event_id))
 
 
+def set_grocery_items_checked(
+    share_code: str, keys: list[str], checked: bool
+) -> Optional[GroceryList]:
+    """Tick or untick every named line in one read-modify-write.
+
+    What "check this whole rayon" or "check everything for this recipe" calls
+    instead of one `set_grocery_item_checked` per line: that loop reads the
+    list once per call, so N calls in flight at once can each start from the
+    same stale snapshot and each write back only their own line, the others'
+    ticks silently lost under whichever write lands last. One read, one write,
+    all the named keys flipped together, removes the race entirely.
+    """
+    existing = get_grocery_list_by_code(share_code)
+    if existing is None:
+        return None
+
+    wanted = set(keys)
+    items = [item.model_dump(mode="json") for item in existing.items]
+    if not any(item["key"] in wanted for item in items):
+        return None
+    for item in items:
+        if item["key"] in wanted:
+            item["checked"] = checked
+
+    collection = get_db().collection(GROCERY)
+    collection.update(
+        {"_key": existing.event_id, "items": items, "updated_at": utcnow_iso()},
+        merge=False,
+    )
+    return _to_grocery(collection.get(existing.event_id))
+
+
 def set_grocery_assignees(
     event_id: str, keys: list[str], assignees: list[str]
 ) -> Optional[GroceryList]:

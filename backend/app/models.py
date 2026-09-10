@@ -421,6 +421,23 @@ class GroceryCheck(BaseModel):
     checked: bool
 
 
+class GroceryCheckMany(BaseModel):
+    """Tick or untick several lines in one write — a whole rayon, or a whole
+    recipe's worth, from the "check everything under this heading" box.
+
+    A loop of single-item PATCHes would race: each one reads the whole item
+    list, flips its own line, and writes the whole list back, so two such
+    calls in flight at once can each write from a stale read and silently
+    discard the other's tick. One call, one read-modify-write, avoids that
+    the same way `GroceryAssign` already does for assignment.
+    """
+
+    keys: list[Annotated[str, Field(max_length=40)]] = Field(
+        min_length=1, max_length=500
+    )
+    checked: bool
+
+
 class GroceryAssign(BaseModel):
     """Put people on some lines of the list.
 
